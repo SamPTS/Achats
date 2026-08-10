@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { getAppDir } from './runtimePaths';
 
-export const STORAGE_ROOT = path.join(__dirname, '..', 'storage');
+export const STORAGE_ROOT = path.join(getAppDir(), 'storage');
 export const DIR_CONDITIONS = path.join(STORAGE_ROOT, 'conditions');
 export const DIR_TEMPLATES = path.join(STORAGE_ROOT, 'templates');
 export const DIR_MAPPINGS = path.join(STORAGE_ROOT, 'mappings');

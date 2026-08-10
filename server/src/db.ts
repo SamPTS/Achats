@@ -1,61 +1,57 @@
-import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import { JsonTable, Row } from './jsonStore';
+import { getAppDir } from './runtimePaths';
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = path.join(getAppDir(), 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-export const db = new Database(path.join(DATA_DIR, 'app.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+export interface ConditionsVersionRow extends Row {
+  nomFichier: string;
+  dateDepot: string;
+  cheminStockage: string;
+  colonnes: string[];
+  colonneCodeSousSegment: string | null;
+  estActive: boolean;
+  deposePar: string | null;
+  nbLignes: number;
+  nbLignesVides: number;
+  nbColonnes: number;
+  doublonsDetectes: number;
+  archive: boolean;
+}
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS conditions_versions (
-  id TEXT PRIMARY KEY,
-  nom_fichier TEXT NOT NULL,
-  date_depot TEXT NOT NULL,
-  chemin_stockage TEXT NOT NULL,
-  colonnes_detectees TEXT NOT NULL, -- JSON string[]
-  colonne_code_sous_segment TEXT,
-  est_active INTEGER NOT NULL DEFAULT 0,
-  depose_par TEXT,
-  nb_lignes INTEGER NOT NULL DEFAULT 0,
-  nb_lignes_vides INTEGER NOT NULL DEFAULT 0,
-  nb_colonnes INTEGER NOT NULL DEFAULT 0,
-  doublons_detectes INTEGER NOT NULL DEFAULT 0,
-  archive INTEGER NOT NULL DEFAULT 0
-);
+export interface TemplateRow extends Row {
+  groupId: string;
+  libelle: string;
+  departement: string | null;
+  dateDepot: string;
+  cheminStockage: string;
+  version: number;
+  nomFichier: string;
+  variables: string[];
+  deposePar: string | null;
+  archive: boolean;
+}
 
-CREATE TABLE IF NOT EXISTS templates_contrats (
-  id TEXT PRIMARY KEY,
-  group_id TEXT NOT NULL, -- lie les versions successives d'un même template
-  libelle TEXT NOT NULL,
-  departement TEXT,
-  date_depot TEXT NOT NULL,
-  chemin_stockage TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  nom_fichier TEXT NOT NULL,
-  variables_detectees TEXT NOT NULL, -- JSON string[]
-  depose_par TEXT,
-  archive INTEGER NOT NULL DEFAULT 0
-);
+export type MappingStatut = 'mappee' | 'libre' | 'manquante';
 
-CREATE TABLE IF NOT EXISTS mappings_template (
-  id TEXT PRIMARY KEY,
-  template_id TEXT NOT NULL REFERENCES templates_contrats(id),
-  variable TEXT NOT NULL,
-  colonne_correspondante TEXT,
-  statut TEXT NOT NULL DEFAULT 'manquante' -- 'mappee' | 'libre' | 'manquante'
-);
+export interface MappingRow extends Row {
+  templateId: string;
+  variable: string;
+  colonneCorrespondante: string | null;
+  statut: MappingStatut;
+}
 
-CREATE TABLE IF NOT EXISTS generations (
-  id TEXT PRIMARY KEY,
-  template_id TEXT NOT NULL,
-  conditions_version_id TEXT NOT NULL,
-  code_sous_segment TEXT NOT NULL,
-  date_generation TEXT NOT NULL,
-  traite_par TEXT
-);
-`);
+export interface GenerationRow extends Row {
+  templateId: string;
+  conditionsVersionId: string;
+  codeSousSegment: string;
+  dateGeneration: string;
+  traitePar: string | null;
+}
 
-export default db;
+export const conditionsVersionsTable = new JsonTable<ConditionsVersionRow>(DATA_DIR, 'conditions_versions');
+export const templatesTable = new JsonTable<TemplateRow>(DATA_DIR, 'templates_contrats');
+export const mappingsTable = new JsonTable<MappingRow>(DATA_DIR, 'mappings_template');
+export const generationsTable = new JsonTable<GenerationRow>(DATA_DIR, 'generations');

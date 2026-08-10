@@ -3,6 +3,8 @@ dist/
 server/data/
 server/storage/
 client/dist/
+release/
+*.exe
 *.log
 .DS_Store
 client/tsconfig.tsbuildinfo

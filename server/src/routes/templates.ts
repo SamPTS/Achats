@@ -3,7 +3,7 @@ import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import db from '../db';
+import { templatesTable, mappingsTable, TemplateRow, MappingRow } from '../db';
 import { DIR_TEMPLATES, buildStoredFilename } from '../storage';
 import { extractVariablesFromDocx } from '../utils/docx';
 import { buildBlankMappingWorkbook, parseMappingFile } from '../utils/excel';
@@ -12,30 +12,8 @@ import { getActiveConditionsVersion, getConditionsVersion } from '../conditionsS
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const router = Router();
 
-interface TemplateRow {
-  id: string;
-  group_id: string;
-  libelle: string;
-  departement: string | null;
-  date_depot: string;
-  chemin_stockage: string;
-  version: number;
-  nom_fichier: string;
-  variables_detectees: string;
-  depose_par: string | null;
-  archive: number;
-}
-
-interface MappingRow {
-  id: string;
-  template_id: string;
-  variable: string;
-  colonne_correspondante: string | null;
-  statut: 'mappee' | 'libre' | 'manquante';
-}
-
 function getMappings(templateId: string): MappingRow[] {
-  return db.prepare('SELECT * FROM mappings_template WHERE template_id = ?').all(templateId) as MappingRow[];
+  return mappingsTable.find((m) => m.templateId === templateId);
 }
 
 function mappingStatus(mappings: MappingRow[]): 'complet' | 'incomplet' | 'absent' {
@@ -48,17 +26,17 @@ function templateToApi(row: TemplateRow) {
   const mappings = getMappings(row.id);
   return {
     id: row.id,
-    groupId: row.group_id,
+    groupId: row.groupId,
     libelle: row.libelle,
     departement: row.departement,
-    dateDepot: row.date_depot,
+    dateDepot: row.dateDepot,
     version: row.version,
-    nomFichier: row.nom_fichier,
-    variables: JSON.parse(row.variables_detectees) as string[],
-    deposePar: row.depose_par,
+    nomFichier: row.nomFichier,
+    variables: row.variables,
+    deposePar: row.deposePar,
     mappings: mappings.map((m) => ({
       variable: m.variable,
-      colonneCorrespondante: m.colonne_correspondante,
+      colonneCorrespondante: m.colonneCorrespondante,
       statut: m.statut,
     })),
     statutMapping: mappingStatus(mappings),
@@ -67,31 +45,27 @@ function templateToApi(row: TemplateRow) {
 
 // Liste : la dernière version de chaque groupe de template.
 router.get('/', (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT t.* FROM templates_contrats t
-       WHERE t.archive = 0 AND t.version = (
-         SELECT MAX(t2.version) FROM templates_contrats t2 WHERE t2.group_id = t.group_id AND t2.archive = 0
-       )
-       ORDER BY t.date_depot DESC`
-    )
-    .all() as TemplateRow[];
-  res.json(rows.map(templateToApi));
+  const rows = templatesTable.find((t) => !t.archive);
+  const latestByGroup = new Map<string, TemplateRow>();
+  for (const row of rows) {
+    const current = latestByGroup.get(row.groupId);
+    if (!current || row.version > current.version) latestByGroup.set(row.groupId, row);
+  }
+  const result = Array.from(latestByGroup.values()).sort((a, b) => (a.dateDepot < b.dateDepot ? 1 : -1));
+  res.json(result.map(templateToApi));
 });
 
 router.get('/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(req.params.id) as
-    | TemplateRow
-    | undefined;
+  const row = templatesTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Template introuvable.' });
   res.json(templateToApi(row));
 });
 
 // Historique des versions d'un même template (groupe).
 router.get('/group/:groupId/versions', (req, res) => {
-  const rows = db
-    .prepare('SELECT * FROM templates_contrats WHERE group_id = ? AND archive = 0 ORDER BY version DESC')
-    .all(req.params.groupId) as TemplateRow[];
+  const rows = templatesTable
+    .find((t) => t.groupId === req.params.groupId && !t.archive)
+    .sort((a, b) => b.version - a.version);
   res.json(rows.map(templateToApi));
 });
 
@@ -113,44 +87,37 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     const groupId: string = (req.body.groupId as string) || uuid();
-    const prevVersion = db
-      .prepare('SELECT MAX(version) as v FROM templates_contrats WHERE group_id = ?')
-      .get(groupId) as { v: number | null };
-    const version = (prevVersion.v ?? 0) + 1;
+    const previousVersions = templatesTable.find((t) => t.groupId === groupId);
+    const version = previousVersions.reduce((max, t) => Math.max(max, t.version), 0) + 1;
 
     const storedName = buildStoredFilename('template', libelle, 'docx');
     fs.writeFileSync(path.join(DIR_TEMPLATES, storedName), req.file.buffer);
 
     const id = uuid();
-    db.prepare(
-      `INSERT INTO templates_contrats
-       (id, group_id, libelle, departement, date_depot, chemin_stockage, version, nom_fichier,
-        variables_detectees, depose_par, archive)
-       VALUES (@id, @group_id, @libelle, @departement, @date_depot, @chemin_stockage, @version, @nom_fichier,
-        @variables_detectees, @depose_par, 0)`
-    ).run({
+    const created = templatesTable.insert({
       id,
-      group_id: groupId,
+      groupId,
       libelle,
       departement: req.body.departement || null,
-      date_depot: new Date().toISOString(),
-      chemin_stockage: storedName,
+      dateDepot: new Date().toISOString(),
+      cheminStockage: storedName,
       version,
-      nom_fichier: req.file.originalname,
-      variables_detectees: JSON.stringify(variables),
-      depose_par: req.body.deposePar || null,
+      nomFichier: req.file.originalname,
+      variables,
+      deposePar: req.body.deposePar || null,
+      archive: false,
     });
 
-    const insertMapping = db.prepare(
-      `INSERT INTO mappings_template (id, template_id, variable, colonne_correspondante, statut)
-       VALUES (?, ?, ?, NULL, 'manquante')`
-    );
-    const tx = db.transaction(() => {
-      for (const v of variables) insertMapping.run(uuid(), id, v);
-    });
-    tx();
+    for (const v of variables) {
+      mappingsTable.insert({
+        id: uuid(),
+        templateId: id,
+        variable: v,
+        colonneCorrespondante: null,
+        statut: 'manquante',
+      });
+    }
 
-    const created = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(id) as TemplateRow;
     res.status(201).json(templateToApi(created));
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Erreur lors du dépôt du template.' });
@@ -158,30 +125,25 @@ router.post('/', upload.single('file'), async (req, res) => {
 });
 
 router.get('/:id/download', (req, res) => {
-  const row = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(req.params.id) as
-    | TemplateRow
-    | undefined;
+  const row = templatesTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Template introuvable.' });
-  const filePath = path.join(DIR_TEMPLATES, row.chemin_stockage);
+  const filePath = path.join(DIR_TEMPLATES, row.cheminStockage);
   if (!fs.existsSync(filePath)) return res.status(410).json({ error: 'Fichier manquant sur le disque.' });
-  res.download(filePath, row.nom_fichier);
+  res.download(filePath, row.nomFichier);
 });
 
 // Génère le fichier de mapping vierge (Variable | Colonne correspondante | Colonnes disponibles).
 router.get('/:id/mapping/blank', async (req, res) => {
-  const row = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(req.params.id) as
-    | TemplateRow
-    | undefined;
+  const row = templatesTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Template introuvable.' });
 
   const conditionsVersionId = (req.query.conditionsVersionId as string) || undefined;
   const conditionsVersion = conditionsVersionId
     ? getConditionsVersion(conditionsVersionId)
     : getActiveConditionsVersion();
-  const colonnes = conditionsVersion ? JSON.parse(conditionsVersion.colonnes_detectees) : [];
+  const colonnes = conditionsVersion ? conditionsVersion.colonnes : [];
 
-  const variables: string[] = JSON.parse(row.variables_detectees);
-  const buffer = await buildBlankMappingWorkbook(variables, colonnes);
+  const buffer = await buildBlankMappingWorkbook(row.variables, colonnes);
   res.setHeader('Content-Disposition', `attachment; filename="mapping_${row.libelle}.xlsx"`);
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.send(buffer);
@@ -190,9 +152,7 @@ router.get('/:id/mapping/blank', async (req, res) => {
 // Dépôt du fichier de mapping rempli : validation contre le référentiel de colonnes.
 router.post('/:id/mapping', upload.single('file'), async (req, res) => {
   try {
-    const row = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(req.params.id) as
-      | TemplateRow
-      | undefined;
+    const row = templatesTable.getById(req.params.id);
     if (!row) return res.status(404).json({ error: 'Template introuvable.' });
     if (!req.file) return res.status(400).json({ error: 'Aucun fichier fourni.' });
 
@@ -200,9 +160,7 @@ router.post('/:id/mapping', upload.single('file'), async (req, res) => {
     const conditionsVersion = conditionsVersionId
       ? getConditionsVersion(conditionsVersionId)
       : getActiveConditionsVersion();
-    const colonnesRef: string[] = conditionsVersion
-      ? JSON.parse(conditionsVersion.colonnes_detectees)
-      : [];
+    const colonnesRef: string[] = conditionsVersion ? conditionsVersion.colonnes : [];
 
     let parsedRows;
     try {
@@ -211,7 +169,7 @@ router.post('/:id/mapping', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: `Fichier de mapping illisible : ${e.message}` });
     }
 
-    const variables: string[] = JSON.parse(row.variables_detectees);
+    const variables = row.variables;
     const seenVariables = new Set<string>();
     const seenColonnes = new Set<string>();
     const erreurs: string[] = [];
@@ -244,18 +202,16 @@ router.post('/:id/mapping', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Incohérences détectées dans le mapping.', details: erreurs });
     }
 
-    const tx = db.transaction(() => {
-      for (const variable of variables) {
-        const colonne = byVariable.get(variable) ?? null;
-        const statut = colonne ? 'mappee' : 'manquante';
-        db.prepare(
-          'UPDATE mappings_template SET colonne_correspondante = ?, statut = ? WHERE template_id = ? AND variable = ?'
-        ).run(colonne, statut, row.id, variable);
-      }
-    });
-    tx();
+    for (const variable of variables) {
+      const colonne = byVariable.get(variable) ?? null;
+      const statut = colonne ? 'mappee' : 'manquante';
+      mappingsTable.updateWhere(
+        (m) => m.templateId === row.id && m.variable === variable,
+        { colonneCorrespondante: colonne, statut }
+      );
+    }
 
-    const updated = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(row.id) as TemplateRow;
+    const updated = templatesTable.getById(row.id)!;
     res.json(templateToApi(updated));
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Erreur lors du dépôt du mapping.' });
@@ -264,9 +220,7 @@ router.post('/:id/mapping', upload.single('file'), async (req, res) => {
 
 // Édition manuelle d'une ligne de mapping (ex: marquer une variable comme "saisie libre").
 router.patch('/:id/mapping/:variable', (req, res) => {
-  const row = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(req.params.id) as
-    | TemplateRow
-    | undefined;
+  const row = templatesTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Template introuvable.' });
 
   const { colonneCorrespondante, statut } = req.body as {
@@ -275,14 +229,15 @@ router.patch('/:id/mapping/:variable', (req, res) => {
   };
   const finalStatut = statut ?? (colonneCorrespondante ? 'mappee' : 'manquante');
 
-  const result = db
-    .prepare(
-      'UPDATE mappings_template SET colonne_correspondante = ?, statut = ? WHERE template_id = ? AND variable = ?'
-    )
-    .run(colonneCorrespondante ?? null, finalStatut, row.id, req.params.variable);
-  if (result.changes === 0) return res.status(404).json({ error: 'Variable inconnue pour ce template.' });
+  const existing = mappingsTable.findOne((m) => m.templateId === row.id && m.variable === req.params.variable);
+  if (!existing) return res.status(404).json({ error: 'Variable inconnue pour ce template.' });
 
-  const updated = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(row.id) as TemplateRow;
+  mappingsTable.update(existing.id, {
+    colonneCorrespondante: colonneCorrespondante ?? null,
+    statut: finalStatut,
+  });
+
+  const updated = templatesTable.getById(row.id)!;
   res.json(templateToApi(updated));
 });
 

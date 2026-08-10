@@ -2,52 +2,31 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import db from '../db';
+import { templatesTable, mappingsTable, generationsTable, TemplateRow, MappingRow } from '../db';
 import { DIR_TEMPLATES } from '../storage';
 import { fillDocxTemplate } from '../utils/docx';
 import { getConditionsVersion, readConditionsRows } from '../conditionsService';
 
 const router = Router();
 
-interface TemplateRow {
-  id: string;
-  group_id: string;
-  libelle: string;
-  departement: string | null;
-  date_depot: string;
-  chemin_stockage: string;
-  version: number;
-  nom_fichier: string;
-  variables_detectees: string;
-  archive: number;
-}
-
-interface MappingRow {
-  variable: string;
-  colonne_correspondante: string | null;
-  statut: 'mappee' | 'libre' | 'manquante';
-}
-
 function isMappingComplete(templateId: string): boolean {
-  const mappings = db
-    .prepare('SELECT * FROM mappings_template WHERE template_id = ?')
-    .all(templateId) as MappingRow[];
+  const mappings = mappingsTable.find((m) => m.templateId === templateId);
   if (mappings.length === 0) return false;
   return mappings.every((m) => m.statut === 'mappee' || m.statut === 'libre');
 }
 
 // Templates disponibles pour la génération (mapping complet uniquement), dernière version par groupe.
 router.get('/templates', (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT t.* FROM templates_contrats t
-       WHERE t.archive = 0 AND t.version = (
-         SELECT MAX(t2.version) FROM templates_contrats t2 WHERE t2.group_id = t.group_id AND t2.archive = 0
-       )
-       ORDER BY t.libelle ASC`
-    )
-    .all() as TemplateRow[];
-  const usable = rows.filter((r) => isMappingComplete(r.id));
+  const rows = templatesTable.find((t) => !t.archive);
+  const latestByGroup = new Map<string, TemplateRow>();
+  for (const row of rows) {
+    const current = latestByGroup.get(row.groupId);
+    if (!current || row.version > current.version) latestByGroup.set(row.groupId, row);
+  }
+  const usable = Array.from(latestByGroup.values())
+    .filter((r) => isMappingComplete(r.id))
+    .sort((a, b) => a.libelle.localeCompare(b.libelle));
+
   res.json(
     usable.map((r) => ({
       id: r.id,
@@ -66,12 +45,12 @@ router.get('/search', async (req, res) => {
     if (!conditionsVersionId) return res.status(400).json({ error: 'conditionsVersionId requis.' });
     const version = getConditionsVersion(conditionsVersionId);
     if (!version) return res.status(404).json({ error: 'Fichier de conditions introuvable.' });
-    if (!version.colonne_code_sous_segment) {
+    if (!version.colonneCodeSousSegment) {
       return res.status(400).json({ error: 'La colonne "code sous-segment" n\'est pas définie pour ce fichier.' });
     }
     const { rows } = await readConditionsRows(version);
     const normalized = code.trim().toLowerCase();
-    const colonne = version.colonne_code_sous_segment;
+    const colonne = version.colonneCodeSousSegment;
 
     const matches: { rowIndex: number; preview: Record<string, string> }[] = [];
     rows.forEach((row, idx) => {
@@ -107,14 +86,12 @@ router.get('/mapped-values', async (req, res) => {
     const row = rows[rowIndex];
     if (!row) return res.status(404).json({ error: 'Ligne introuvable.' });
 
-    const mappings = db
-      .prepare('SELECT * FROM mappings_template WHERE template_id = ?')
-      .all(templateId) as MappingRow[];
+    const mappings: MappingRow[] = mappingsTable.find((m) => m.templateId === templateId);
 
     const values: Record<string, string> = {};
     for (const m of mappings) {
       // Convention "zéro interprétation" : colonne vide -> champ vide, jamais de valeur devinée.
-      values[m.variable] = m.statut === 'mappee' && m.colonne_correspondante ? row[m.colonne_correspondante] ?? '' : '';
+      values[m.variable] = m.statut === 'mappee' && m.colonneCorrespondante ? row[m.colonneCorrespondante] ?? '' : '';
     }
     res.json({ values });
   } catch (e: any) {
@@ -135,23 +112,25 @@ router.post('/download', async (req, res) => {
     if (!templateId || !conditionsVersionId || !codeSousSegment || !values) {
       return res.status(400).json({ error: 'Paramètres manquants pour la génération.' });
     }
-    const template = db.prepare('SELECT * FROM templates_contrats WHERE id = ?').get(templateId) as
-      | TemplateRow
-      | undefined;
+    const template = templatesTable.getById(templateId);
     if (!template) return res.status(404).json({ error: 'Template introuvable.' });
 
-    const filePath = path.join(DIR_TEMPLATES, template.chemin_stockage);
+    const filePath = path.join(DIR_TEMPLATES, template.cheminStockage);
     if (!fs.existsSync(filePath)) return res.status(410).json({ error: 'Fichier template manquant sur le disque.' });
 
     const buffer = fs.readFileSync(filePath);
     const filled = await fillDocxTemplate(buffer, values);
 
-    db.prepare(
-      `INSERT INTO generations (id, template_id, conditions_version_id, code_sous_segment, date_generation, traite_par)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(uuid(), templateId, conditionsVersionId, codeSousSegment, new Date().toISOString(), traitePar || null);
+    generationsTable.insert({
+      id: uuid(),
+      templateId,
+      conditionsVersionId,
+      codeSousSegment,
+      dateGeneration: new Date().toISOString(),
+      traitePar: traitePar || null,
+    });
 
-    const outName = `${path.parse(template.nom_fichier).name}_${codeSousSegment}.docx`;
+    const outName = `${path.parse(template.nomFichier).name}_${codeSousSegment}.docx`;
     res.setHeader('Content-Disposition', `attachment; filename="${outName}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.send(filled);
@@ -162,8 +141,8 @@ router.post('/download', async (req, res) => {
 
 // Journal des générations (traçabilité).
 router.get('/log', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM generations ORDER BY date_generation DESC LIMIT 200').all();
-  res.json(rows);
+  const rows = generationsTable.all().sort((a, b) => (a.dateGeneration < b.dateGeneration ? 1 : -1));
+  res.json(rows.slice(0, 200));
 });
 
 export default router;

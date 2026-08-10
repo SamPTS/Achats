@@ -3,39 +3,39 @@ import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import db from '../db';
+import { conditionsVersionsTable, ConditionsVersionRow } from '../db';
 import { DIR_CONDITIONS, buildStoredFilename } from '../storage';
 import { parseConditionsFile, findDuplicateCodes } from '../utils/excel';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const router = Router();
 
-function rowToApi(row: any) {
+function rowToApi(row: ConditionsVersionRow) {
   return {
     id: row.id,
-    nomFichier: row.nom_fichier,
-    dateDepot: row.date_depot,
-    colonnes: JSON.parse(row.colonnes_detectees),
-    colonneCodeSousSegment: row.colonne_code_sous_segment,
-    estActive: !!row.est_active,
-    deposePar: row.depose_par,
-    nbLignes: row.nb_lignes,
-    nbLignesVides: row.nb_lignes_vides,
-    nbColonnes: row.nb_colonnes,
-    doublonsDetectes: row.doublons_detectes,
+    nomFichier: row.nomFichier,
+    dateDepot: row.dateDepot,
+    colonnes: row.colonnes,
+    colonneCodeSousSegment: row.colonneCodeSousSegment,
+    estActive: row.estActive,
+    deposePar: row.deposePar,
+    nbLignes: row.nbLignes,
+    nbLignesVides: row.nbLignesVides,
+    nbColonnes: row.nbColonnes,
+    doublonsDetectes: row.doublonsDetectes,
   };
 }
 
 // Liste des versions historisées, triées par date décroissante.
 router.get('/', (_req, res) => {
-  const rows = db
-    .prepare('SELECT * FROM conditions_versions WHERE archive = 0 ORDER BY date_depot DESC')
-    .all();
+  const rows = conditionsVersionsTable
+    .find((v) => !v.archive)
+    .sort((a, b) => (a.dateDepot < b.dateDepot ? 1 : -1));
   res.json(rows.map(rowToApi));
 });
 
 router.get('/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
+  const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
   res.json(rowToApi(row));
 });
@@ -65,33 +65,24 @@ router.post('/', upload.single('file'), async (req, res) => {
     const storedName = buildStoredFilename('conditions', libelle, 'xlsx');
     fs.writeFileSync(path.join(DIR_CONDITIONS, storedName), req.file.buffer);
 
-    const existingCount = db
-      .prepare('SELECT COUNT(*) as n FROM conditions_versions WHERE archive = 0')
-      .get() as { n: number };
-    const estActive = existingCount.n === 0 ? 1 : 0;
+    const estActive = conditionsVersionsTable.find((v) => !v.archive).length === 0;
 
-    db.prepare(
-      `INSERT INTO conditions_versions
-       (id, nom_fichier, date_depot, chemin_stockage, colonnes_detectees, colonne_code_sous_segment,
-        est_active, depose_par, nb_lignes, nb_lignes_vides, nb_colonnes, doublons_detectes, archive)
-       VALUES (@id, @nom_fichier, @date_depot, @chemin_stockage, @colonnes_detectees, @colonne_code_sous_segment,
-        @est_active, @depose_par, @nb_lignes, @nb_lignes_vides, @nb_colonnes, @doublons_detectes, 0)`
-    ).run({
+    const created = conditionsVersionsTable.insert({
       id,
-      nom_fichier: originalName,
-      date_depot: new Date().toISOString(),
-      chemin_stockage: storedName,
-      colonnes_detectees: JSON.stringify(parsed.colonnes),
-      colonne_code_sous_segment: colonneCode,
-      est_active: estActive,
-      depose_par: req.body.deposePar || null,
-      nb_lignes: parsed.rows.length,
-      nb_lignes_vides: parsed.nbLignesVides,
-      nb_colonnes: parsed.colonnes.length,
-      doublons_detectes: doublons,
+      nomFichier: originalName,
+      dateDepot: new Date().toISOString(),
+      cheminStockage: storedName,
+      colonnes: parsed.colonnes,
+      colonneCodeSousSegment: colonneCode,
+      estActive,
+      deposePar: req.body.deposePar || null,
+      nbLignes: parsed.rows.length,
+      nbLignesVides: parsed.nbLignesVides,
+      nbColonnes: parsed.colonnes.length,
+      doublonsDetectes: doublons,
+      archive: false,
     });
 
-    const created = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(id);
     res.status(201).json(rowToApi(created));
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Erreur lors du dépôt du fichier.' });
@@ -100,47 +91,39 @@ router.post('/', upload.single('file'), async (req, res) => {
 
 // Désigner manuellement la colonne "code sous-segment", si non détectée automatiquement.
 router.patch('/:id', (req, res) => {
-  const row: any = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
+  const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
-  const colonnes: string[] = JSON.parse(row.colonnes_detectees);
   const { colonneCodeSousSegment } = req.body;
-  if (colonneCodeSousSegment && !colonnes.includes(colonneCodeSousSegment)) {
+  if (colonneCodeSousSegment && !row.colonnes.includes(colonneCodeSousSegment)) {
     return res.status(400).json({ error: 'Colonne inconnue dans ce fichier.' });
   }
-  db.prepare('UPDATE conditions_versions SET colonne_code_sous_segment = ? WHERE id = ?').run(
-    colonneCodeSousSegment,
-    req.params.id
-  );
-  const updated = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
-  res.json(rowToApi(updated));
+  const updated = conditionsVersionsTable.update(req.params.id, { colonneCodeSousSegment });
+  res.json(rowToApi(updated!));
 });
 
 // Marquer une version comme active (une seule version active à la fois).
 router.post('/:id/activate', (req, res) => {
-  const row = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
+  const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
-  const tx = db.transaction(() => {
-    db.prepare('UPDATE conditions_versions SET est_active = 0').run();
-    db.prepare('UPDATE conditions_versions SET est_active = 1 WHERE id = ?').run(req.params.id);
-  });
-  tx();
+  conditionsVersionsTable.updateWhere(() => true, { estActive: false });
+  conditionsVersionsTable.update(req.params.id, { estActive: true });
   res.json({ ok: true });
 });
 
 // Archivage (masquage) plutôt que suppression définitive.
 router.post('/:id/archive', (req, res) => {
-  const row = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
+  const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
-  db.prepare('UPDATE conditions_versions SET archive = 1, est_active = 0 WHERE id = ?').run(req.params.id);
+  conditionsVersionsTable.update(req.params.id, { archive: true, estActive: false });
   res.json({ ok: true });
 });
 
 router.get('/:id/download', (req, res) => {
-  const row: any = db.prepare('SELECT * FROM conditions_versions WHERE id = ?').get(req.params.id);
+  const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
-  const filePath = path.join(DIR_CONDITIONS, row.chemin_stockage);
+  const filePath = path.join(DIR_CONDITIONS, row.cheminStockage);
   if (!fs.existsSync(filePath)) return res.status(410).json({ error: 'Fichier manquant sur le disque.' });
-  res.download(filePath, row.nom_fichier);
+  res.download(filePath, row.nomFichier);
 });
 
 export default router;
