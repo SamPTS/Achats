@@ -8,7 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p .",
     "start": "node dist/index.js",
-    "build:exe": "npm run build && pkg . --targets node22-win-x64 --output ../release/AchatsContrats.exe"
+    "build:exe": "npm run build && pkg . --targets node22-win-x64 --output ../release/AchatsContrats.exe --public-packages \"*\" --public"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -35,6 +35,7 @@
     "targets": [
       "node22-win-x64"
     ],
-    "outputPath": "../release"
+    "outputPath": "../release",
+    "public": true
   }
 }
