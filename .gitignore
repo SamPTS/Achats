@@ -1,0 +1,8 @@
+node_modules/
+dist/
+server/data/
+server/storage/
+client/dist/
+*.log
+.DS_Store
+client/tsconfig.tsbuildinfo
