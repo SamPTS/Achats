@@ -34,7 +34,16 @@ Ce choix de stack correspond à l'alternative "Node.js + stockage fichier
 local" évoquée dans la spécification (section 6.2), pour rester
 autonome (pas de dépendance à un service externe type Supabase).
 
-## Démarrage
+## Démarrage rapide (Windows) — pour tester sans taper de commande
+
+Double-clique sur **`lancer-application.bat`** (à la racine du dépôt). Le
+script installe les dépendances si besoin, construit l'interface, démarre
+l'application sur `http://localhost:4000` et ouvre cette page dans ton
+navigateur. Nécessite [Node.js](https://nodejs.org/) (version LTS) installé
+au préalable. Laisse la fenêtre noire ouverte pendant le test ; ferme-la pour
+arrêter l'application.
+
+## Démarrage manuel (développement)
 
 ```bash
 # Backend (API sur http://localhost:4000)
@@ -47,6 +56,11 @@ cd client
 npm install
 npm run dev
 ```
+
+Le serveur sert aussi automatiquement l'interface buildée
+(`client/dist`, générée par `npm run build`) sur son propre port
+(`http://localhost:4000`) si elle existe — c'est ce que fait le script
+`lancer-application.bat`, pour n'avoir qu'un seul port à ouvrir.
 
 La base SQLite (`server/data/app.db`) et les fichiers stockés
 (`server/storage/`) sont créés automatiquement au premier démarrage.
