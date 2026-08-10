@@ -1,0 +1,15 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "version": "1.18.2",
+    "libraryName": "achats-contrats",
+    "libraryId": "8f0d6a3e-6b1e-4a1a-9a8c-2f6d6d8f2c11",
+    "environment": "spo",
+    "packageManager": "npm",
+    "solutionName": "achats-contrats",
+    "isCreatingSolution": true,
+    "nodeVersion": "18.20.4",
+    "sdksVersions": {},
+    "isDomainIsolated": false,
+    "componentType": "webpart"
+  }
+}
