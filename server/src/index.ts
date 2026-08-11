@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import { exec } from 'child_process';
 import './db'; // initialise le schéma au démarrage
 import conditionsRouter from './routes/conditions';
 import templatesRouter from './routes/templates';
@@ -25,7 +26,32 @@ if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
 }
 
+/**
+ * Ouvre l'URL dans le navigateur par défaut du système. Utilisé pour que
+ * l'exécutable packagé (.exe) se comporte comme le script
+ * lancer-application.bat, qui ouvrait la page via `start` : sans cela,
+ * double-cliquer sur l'exe démarre bien le serveur mais rien ne s'affiche
+ * tant que l'utilisateur ne va pas lui-même sur localhost:4000.
+ */
+function openBrowser(url: string) {
+  const cmd =
+    process.platform === 'win32'
+      ? `start "" "${url}"`
+      : process.platform === 'darwin'
+        ? `open "${url}"`
+        : `xdg-open "${url}"`;
+  exec(cmd, (err) => {
+    if (err) {
+      console.warn(
+        `Impossible d'ouvrir automatiquement le navigateur (${err.message}). Ouvrez ${url} manuellement.`,
+      );
+    }
+  });
+}
+
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
 app.listen(PORT, () => {
-  console.log(`Achats — application disponible sur http://localhost:${PORT}`);
+  const url = `http://localhost:${PORT}`;
+  console.log(`Achats — application disponible sur ${url}`);
+  openBrowser(url);
 });
