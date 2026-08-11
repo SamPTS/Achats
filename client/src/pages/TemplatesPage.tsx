@@ -291,7 +291,12 @@ function MappingPanel({
                 <code>{`{{${m.variable}}}`}</code>
               </td>
               <td>
-                {m.statut === 'mappee' && <span className="badge ok">Mappée</span>}
+                {m.statut === 'mappee' && m.colonneIntrouvable && (
+                  <span className="badge danger" title="La colonne mappée n'existe plus dans le fichier de conditions actif">
+                    Colonne introuvable
+                  </span>
+                )}
+                {m.statut === 'mappee' && !m.colonneIntrouvable && <span className="badge ok">Mappée</span>}
                 {m.statut === 'libre' && <span className="badge muted">Saisie libre</span>}
                 {m.statut === 'manquante' && <span className="badge danger">Manquante</span>}
               </td>

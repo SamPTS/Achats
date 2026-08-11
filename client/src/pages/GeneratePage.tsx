@@ -13,6 +13,7 @@ export default function GeneratePage() {
   const [matches, setMatches] = useState<SearchMatch[] | null>(null);
   const [rowIndex, setRowIndex] = useState<number | null>(null);
   const [values, setValues] = useState<Record<string, string> | null>(null);
+  const [colonnesManquantes, setColonnesManquantes] = useState<string[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -32,6 +33,7 @@ export default function GeneratePage() {
     setMatches(null);
     setRowIndex(null);
     setValues(null);
+    setColonnesManquantes([]);
     setInfo(null);
   }
 
@@ -62,8 +64,9 @@ export default function GeneratePage() {
     setError(null);
     setBusy(true);
     try {
-      const { values: v } = await getMappedValues(conditionsVersionId, templateId, idx);
+      const { values: v, colonnesManquantes: cm } = await getMappedValues(conditionsVersionId, templateId, idx);
       setValues(v);
+      setColonnesManquantes(cm);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -213,6 +216,13 @@ export default function GeneratePage() {
             Les champs sont pré-remplis à partir du fichier de conditions ; vous pouvez les corriger avant
             génération. Un champ vide signifie que la colonne mappée est vide — complétez-le si besoin.
           </p>
+          {colonnesManquantes.length > 0 && (
+            <div className="alert error">
+              La colonne mappée pour {colonnesManquantes.length > 1 ? 'ces variables n\'existe' : 'cette variable n\'existe'} pas
+              dans le fichier de conditions sélectionné ({colonnesManquantes.join(', ')}) — vérifiez le mapping du
+              template ou complétez la valeur manuellement avant de générer.
+            </div>
+          )}
           <div className="field-grid mt1">
             {Object.entries(values).map(([variable, value]) => (
               <div className="field" key={variable}>

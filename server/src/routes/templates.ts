@@ -16,14 +16,33 @@ function getMappings(templateId: string): MappingRow[] {
   return mappingsTable.find((m) => m.templateId === templateId);
 }
 
-function mappingStatus(mappings: MappingRow[]): 'complet' | 'incomplet' | 'absent' {
+/**
+ * Une ligne "mappee" n'est valide que si sa colonne existe encore dans le
+ * référentiel de colonnes fourni (le fichier de conditions actif). Si aucun
+ * référentiel n'est fourni (pas de conditions active), on ne peut pas savoir
+ * si la colonne existe : on ne pénalise pas ce cas pour ne pas casser
+ * l'usage avant tout dépôt de conditions.
+ */
+function ligneValide(m: MappingRow, colonnesRef: string[] | null): boolean {
+  if (m.statut === 'libre') return true;
+  if (m.statut !== 'mappee' || !m.colonneCorrespondante) return false;
+  if (colonnesRef && !colonnesRef.includes(m.colonneCorrespondante)) return false;
+  return true;
+}
+
+function mappingStatus(
+  mappings: MappingRow[],
+  colonnesRef: string[] | null
+): 'complet' | 'incomplet' | 'absent' {
   if (mappings.length === 0) return 'absent';
-  const allDone = mappings.every((m) => m.statut === 'mappee' || m.statut === 'libre');
+  const allDone = mappings.every((m) => ligneValide(m, colonnesRef));
   return allDone ? 'complet' : 'incomplet';
 }
 
 function templateToApi(row: TemplateRow) {
   const mappings = getMappings(row.id);
+  const active = getActiveConditionsVersion();
+  const colonnesRef = active ? active.colonnes : null;
   return {
     id: row.id,
     groupId: row.groupId,
@@ -38,8 +57,15 @@ function templateToApi(row: TemplateRow) {
       variable: m.variable,
       colonneCorrespondante: m.colonneCorrespondante,
       statut: m.statut,
+      // Mappée en base, mais la colonne n'existe plus dans le fichier de
+      // conditions actuellement actif : à re-mapper avant génération.
+      colonneIntrouvable:
+        m.statut === 'mappee' &&
+        !!m.colonneCorrespondante &&
+        !!colonnesRef &&
+        !colonnesRef.includes(m.colonneCorrespondante),
     })),
-    statutMapping: mappingStatus(mappings),
+    statutMapping: mappingStatus(mappings, colonnesRef),
   };
 }
 

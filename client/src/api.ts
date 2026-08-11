@@ -127,7 +127,7 @@ export function getMappedValues(
   conditionsVersionId: string,
   templateId: string,
   rowIndex: number
-): Promise<{ values: Record<string, string> }> {
+): Promise<{ values: Record<string, string>; colonnesManquantes: string[] }> {
   return fetch(
     `/api/generate/mapped-values?conditionsVersionId=${conditionsVersionId}&templateId=${templateId}&rowIndex=${rowIndex}`
   ).then((r) => handleJson(r));

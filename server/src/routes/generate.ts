@@ -5,14 +5,24 @@ import path from 'path';
 import { templatesTable, mappingsTable, generationsTable, TemplateRow, MappingRow } from '../db';
 import { DIR_TEMPLATES } from '../storage';
 import { fillDocxTemplate } from '../utils/docx';
-import { getConditionsVersion, readConditionsRows } from '../conditionsService';
+import { getActiveConditionsVersion, getConditionsVersion, readConditionsRows } from '../conditionsService';
 
 const router = Router();
 
 function isMappingComplete(templateId: string): boolean {
   const mappings = mappingsTable.find((m) => m.templateId === templateId);
   if (mappings.length === 0) return false;
-  return mappings.every((m) => m.statut === 'mappee' || m.statut === 'libre');
+  // Une colonne mappée mais absente du fichier de conditions actif ne compte
+  // pas comme "complet" : le mapping doit être refait avant de proposer le
+  // template pour la génération (voir server/src/routes/templates.ts).
+  const active = getActiveConditionsVersion();
+  const colonnesRef = active ? active.colonnes : null;
+  return mappings.every((m) => {
+    if (m.statut === 'libre') return true;
+    if (m.statut !== 'mappee' || !m.colonneCorrespondante) return false;
+    if (colonnesRef && !colonnesRef.includes(m.colonneCorrespondante)) return false;
+    return true;
+  });
 }
 
 // Templates disponibles pour la génération (mapping complet uniquement), dernière version par groupe.
@@ -89,11 +99,24 @@ router.get('/mapped-values', async (req, res) => {
     const mappings: MappingRow[] = mappingsTable.find((m) => m.templateId === templateId);
 
     const values: Record<string, string> = {};
+    // Variables dont la colonne mappée n'existe pas (ou plus) dans CE fichier
+    // de conditions : la valeur est vide, mais il ne faut pas laisser croire
+    // que la colonne était simplement vide dans les données.
+    const colonnesManquantes: string[] = [];
     for (const m of mappings) {
-      // Convention "zéro interprétation" : colonne vide -> champ vide, jamais de valeur devinée.
-      values[m.variable] = m.statut === 'mappee' && m.colonneCorrespondante ? row[m.colonneCorrespondante] ?? '' : '';
+      if (m.statut === 'mappee' && m.colonneCorrespondante) {
+        if (!version.colonnes.includes(m.colonneCorrespondante)) {
+          colonnesManquantes.push(m.variable);
+          values[m.variable] = '';
+          continue;
+        }
+        // Convention "zéro interprétation" : colonne vide -> champ vide, jamais de valeur devinée.
+        values[m.variable] = row[m.colonneCorrespondante] ?? '';
+      } else {
+        values[m.variable] = '';
+      }
     }
-    res.json({ values });
+    res.json({ values, colonnesManquantes });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Erreur lors de la lecture des valeurs.' });
   }

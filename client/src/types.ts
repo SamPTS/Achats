@@ -18,6 +18,8 @@ export interface MappingLine {
   variable: string;
   colonneCorrespondante: string | null;
   statut: MappingStatut;
+  /** true si la colonne mappée n'existe plus dans le fichier de conditions actif */
+  colonneIntrouvable?: boolean;
 }
 
 export interface Template {
