@@ -41,6 +41,7 @@ export interface GenerateTemplateOption {
   libelle: string;
   departement: string | null;
   version: number;
+  mappingComplet: boolean;
 }
 
 export interface SearchMatch {

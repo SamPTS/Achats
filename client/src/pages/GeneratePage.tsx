@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { generateContract, getMappedValues, listConditions, listGenerableTemplates, searchCode } from '../api';
 import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../types';
 
@@ -23,11 +24,18 @@ export default function GeneratePage() {
     Promise.all([listGenerableTemplates(), listConditions()]).then(([t, c]) => {
       setTemplates(t);
       setConditions(c);
-      if (t.length > 0) setTemplateId(t[0].id);
+      // Préférer un template déjà utilisable ; à défaut, laisser le premier
+      // sélectionné pour que l'utilisateur voie tout de suite pourquoi il
+      // bloque (mapping incomplet) plutôt que de ne rien avoir de sélectionné.
+      const premierUtilisable = t.find((x) => x.mappingComplet);
+      if (premierUtilisable) setTemplateId(premierUtilisable.id);
+      else if (t.length > 0) setTemplateId(t[0].id);
       const active = c.find((x) => x.estActive);
       if (active) setConditionsVersionId(active.id);
     });
   }, []);
+
+  const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
 
   function resetSearch() {
     setMatches(null);
@@ -40,7 +48,7 @@ export default function GeneratePage() {
   async function runSearch() {
     setError(null);
     resetSearch();
-    if (!conditionsVersionId || !code.trim()) return;
+    if (!conditionsVersionId || !code.trim() || !selectedTemplate?.mappingComplet) return;
     setBusy(true);
     try {
       const result = await searchCode(conditionsVersionId, code.trim());
@@ -128,12 +136,18 @@ export default function GeneratePage() {
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.libelle} {t.departement ? `(${t.departement})` : ''} — v{t.version}
+                  {!t.mappingComplet ? ' — mapping incomplet' : ''}
                 </option>
               ))}
             </select>
             {templates.length === 0 && (
-              <div className="muted small mt1">
-                Aucun template avec un mapping complet n'est disponible pour l'instant.
+              <div className="muted small mt1">Aucun template déposé pour l'instant.</div>
+            )}
+            {selectedTemplate && !selectedTemplate.mappingComplet && (
+              <div className="alert error mt1">
+                Le mapping de ce template n'est pas complet (ou une colonne mappée n'existe plus dans le
+                fichier de conditions actif) : terminez-le dans{' '}
+                <Link to="/templates">Templates de contrats</Link> avant de pouvoir générer un contrat avec.
               </div>
             )}
           </div>
@@ -171,7 +185,10 @@ export default function GeneratePage() {
               placeholder="ex : SS001"
             />
           </div>
-          <button disabled={busy || !templateId || !conditionsVersionId || !code.trim()} onClick={runSearch}>
+          <button
+            disabled={busy || !templateId || !conditionsVersionId || !code.trim() || !selectedTemplate?.mappingComplet}
+            onClick={runSearch}
+          >
             Rechercher
           </button>
         </div>

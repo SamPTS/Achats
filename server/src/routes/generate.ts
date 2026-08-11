@@ -25,7 +25,10 @@ function isMappingComplete(templateId: string): boolean {
   });
 }
 
-// Templates disponibles pour la génération (mapping complet uniquement), dernière version par groupe.
+// Tous les templates déposés (dernière version par groupe), avec leur statut de mapping.
+// On ne filtre plus les templates au mapping incomplet : ils doivent rester visibles dans
+// le sélecteur (sinon un template qu'on vient de déposer semble avoir disparu), mais restent
+// non sélectionnables tant que leur mapping n'est pas complet — voir mappingComplet.
 router.get('/templates', (_req, res) => {
   const rows = templatesTable.find((t) => !t.archive);
   const latestByGroup = new Map<string, TemplateRow>();
@@ -33,16 +36,15 @@ router.get('/templates', (_req, res) => {
     const current = latestByGroup.get(row.groupId);
     if (!current || row.version > current.version) latestByGroup.set(row.groupId, row);
   }
-  const usable = Array.from(latestByGroup.values())
-    .filter((r) => isMappingComplete(r.id))
-    .sort((a, b) => a.libelle.localeCompare(b.libelle));
+  const all = Array.from(latestByGroup.values()).sort((a, b) => a.libelle.localeCompare(b.libelle));
 
   res.json(
-    usable.map((r) => ({
+    all.map((r) => ({
       id: r.id,
       libelle: r.libelle,
       departement: r.departement,
       version: r.version,
+      mappingComplet: isMappingComplete(r.id),
     }))
   );
 });
