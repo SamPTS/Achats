@@ -7,7 +7,7 @@ export default function App() {
   return (
     <HashRouter>
       <div className="layout">
-        <header className="topbar">
+        <aside className="sidebar">
           <div className="brand">Achats — Contrats fournisseurs</div>
           <nav>
             <NavLink to="/conditions" className={({ isActive }) => (isActive ? 'active' : '')}>
@@ -20,7 +20,7 @@ export default function App() {
               3. Générer un contrat
             </NavLink>
           </nav>
-        </header>
+        </aside>
         <main className="content">
           <Routes>
             <Route path="/" element={<Navigate to="/conditions" replace />} />
