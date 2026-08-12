@@ -7,6 +7,7 @@ import './db'; // initialise le schéma au démarrage
 import conditionsRouter from './routes/conditions';
 import templatesRouter from './routes/templates';
 import generateRouter from './routes/generate';
+import { getAppDir } from './runtimePaths';
 
 const app = express();
 app.use(cors());
@@ -18,11 +19,22 @@ app.use('/api/generate', generateRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// Sert le frontend buildé (client/dist) sur le même port, pour un lancement en un seul
-// exécutable/script : évite d'avoir à démarrer un second serveur (Vite) pour tester l'appli.
-// Le routeur front utilise le mode "hash" (#/...), donc aucune route "catch-all" n'est requise.
-const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
-if (fs.existsSync(clientDist)) {
+// Sert le frontend buildé sur le même port, pour un lancement en un seul exécutable/script :
+// évite d'avoir à démarrer un second serveur (Vite) pour tester l'appli. Le routeur front
+// utilise le mode "hash" (#/...), donc aucune route "catch-all" n'est requise.
+//
+// Deux emplacements possibles selon le mode d'exécution :
+// - "public" à côté de l'exécutable : c'est le mode de distribution de l'exe compilé avec
+//   `bun build --compile` (voir server/package.json, build:exe) — Bun n'embarque pas les
+//   fichiers statiques dans le binaire, il faut donc les livrer à côté (voir LISEZ-MOI).
+// - client/dist, résolu depuis __dirname : en développement, ou pour un éventuel paquet
+//   pkg/Node qui embarque ces fichiers dans son système de fichiers virtuel.
+const clientDistCandidates = [
+  path.join(getAppDir(), 'public'),
+  path.join(__dirname, '..', '..', 'client', 'dist'),
+];
+const clientDist = clientDistCandidates.find((p) => fs.existsSync(p));
+if (clientDist) {
   app.use(express.static(clientDist));
 }
 

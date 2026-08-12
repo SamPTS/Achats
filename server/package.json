@@ -8,7 +8,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc -p .",
     "start": "node dist/index.js",
-    "build:exe": "npm run build && pkg . --targets node22-win-x64 --output ../release/AchatsContrats.exe --public-packages \"*\" --public"
+    "build:exe": "bun build src/index.ts --compile --target=bun-windows-x64 --outfile=../release/AchatsContrats.exe && node -e \"const fs=require('fs');fs.rmSync('../release/public',{recursive:true,force:true});fs.cpSync('../client/dist','../release/public',{recursive:true})\"",
+    "build:exe:pkg-legacy": "npm run build && pkg . --targets node22-win-x64 --output ../release/AchatsContrats.exe --public-packages \"*\" --public"
   },
   "dependencies": {
     "cors": "^2.8.5",

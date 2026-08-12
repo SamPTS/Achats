@@ -37,23 +37,37 @@ autonome (pas de dépendance à un service externe type Supabase).
 
 ## Exécutable Windows autonome (.exe)
 
-Un exécutable Windows autonome peut être généré : il embarque Node.js et
-l'interface buildée, sans rien installer sur la machine cible.
+Un exécutable Windows autonome peut être généré avec
+[Bun](https://bun.sh) (`bun build --compile`, cross-compilation depuis
+Linux/Mac vers Windows possible) : il embarque son propre runtime, sans rien
+installer sur la machine cible. Bun doit être installé sur la machine qui
+compile (pas sur la machine cible) : voir https://bun.sh/docs/installation.
 
 ```bash
 cd client && npm install && npm run build && cd ..
 cd server && npm install && npm run build:exe
 ```
 
-Produit `release/AchatsContrats.exe` (~65 Mo). Double-clic → l'application
-démarre et s'ouvre sur `http://localhost:4000` dans le navigateur par défaut.
-La base de données (fichiers JSON) et les fichiers déposés sont créés dans
-des dossiers `data/` et `storage/` **à côté de l'exécutable** — copie-le donc
-dans un dossier dédié plutôt qu'à la racine d'un disque partagé.
+Produit `release/AchatsContrats.exe` (~115 Mo) et `release/public/`
+(l'interface buildée, copiée depuis `client/dist`). **Les deux doivent rester
+ensemble** : contrairement à un empaquetage `pkg` classique, Bun n'embarque
+pas les fichiers statiques dans le binaire — voir `LISEZ-MOI-EXECUTABLE.txt`
+à distribuer avec le dossier `release/`.
 
-Contrainte technique : le stockage utilise désormais des fichiers JSON plutôt
-qu'une base SQLite, afin d'éviter toute dépendance native incompatible avec
+Double-clic sur l'exe → l'application démarre et s'ouvre sur
+`http://localhost:4000` dans le navigateur par défaut. La base de données
+(fichiers JSON) et les fichiers déposés sont créés dans des dossiers `data/`
+et `storage/` **à côté de l'exécutable** — copie-le donc dans un dossier
+dédié plutôt qu'à la racine d'un disque partagé.
+
+Contrainte technique : le stockage utilise des fichiers JSON plutôt qu'une
+base SQLite, afin d'éviter toute dépendance native incompatible avec
 l'empaquetage en exécutable (voir `server/src/jsonStore.ts`).
+
+Un empaquetage alternatif avec `pkg` (Node.js, embarque les fichiers
+statiques dans le binaire — un seul fichier à distribuer, mais ~65 Mo au lieu
+de ~115 Mo) reste disponible via `npm run build:exe:pkg-legacy` dans
+`server/`.
 
 ## Démarrage rapide (Windows) — pour tester sans taper de commande
 

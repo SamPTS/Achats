@@ -1,0 +1,33 @@
+Achats — Générateur de contrats fournisseurs — version bureau
+==================================================
+
+Pour démarrer l'application :
+
+1. Décompressez ce dossier si ce n'est pas déjà fait.
+2. Gardez tous les fichiers et dossiers ensemble : l'exécutable a besoin
+   du dossier "public" à côté de lui pour fonctionner.
+3. Placez le tout dans un dossier dédié (pas à la racine d'un disque
+   partagé) : l'application y crée automatiquement deux dossiers, "data"
+   (fichiers de conditions, templates et journal) et "storage" (fichiers
+   déposés), à côté de l'exécutable.
+4. Double-cliquez sur AchatsContrats.exe.
+
+Une fenêtre de terminal s'ouvre (c'est normal, c'est l'application qui
+démarre), puis votre navigateur s'ouvre automatiquement sur l'application
+(http://localhost:4000).
+
+Laissez la fenêtre de terminal ouverte pendant que vous utilisez
+l'application. Pour l'arrêter, fermez simplement cette fenêtre.
+
+Si vous relancez l'exécutable, vérifiez d'abord qu'une fenêtre d'une
+précédente session n'est pas déjà ouverte (fermez-la sinon) : sans ça,
+le nouveau lancement retombe sur le serveur déjà démarré et vous ne
+verrez pas les dernières mises à jour.
+
+Microsoft Defender SmartScreen peut afficher un avertissement
+("Windows a protégé votre ordinateur") au premier lancement, l'exécutable
+n'étant pas signé numériquement. Cliquez sur "Informations complémentaires"
+puis "Exécuter quand même".
+
+Aucune installation de Node.js n'est nécessaire : l'exécutable embarque son
+propre runtime (Bun).
