@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
@@ -10,7 +9,11 @@ import generateRouter from './routes/generate';
 import { getAppDir } from './runtimePaths';
 
 const app = express();
-app.use(cors());
+// Pas de middleware CORS : le frontend est toujours servi depuis la même origine que l'API
+// (même port en production ; en développement, le proxy Vite fait que le navigateur ne voit
+// jamais de requête cross-origin — voir client/vite.config.ts). Un CORS ouvert à toute origine
+// n'apporterait donc rien d'utile, seulement une surface d'attaque inutile pour une application
+// sans authentification qui manipule des conditions commerciales confidentielles.
 app.use(express.json({ limit: '5mb' }));
 
 app.use('/api/conditions', conditionsRouter);
@@ -62,7 +65,13 @@ function openBrowser(url: string) {
 }
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4000;
-app.listen(PORT, () => {
+// Écoute sur 127.0.0.1 uniquement par défaut : sans cela, Node écoute sur toutes les
+// interfaces réseau (0.0.0.0), ce qui rendrait l'application — sans authentification,
+// manipulant des conditions commerciales confidentielles — accessible à quiconque sur le
+// même réseau (Wi-Fi bureau, VLAN partagé), pas seulement depuis le poste qui l'exécute.
+// HOST reste réglable explicitement pour un usage exceptionnel de partage réseau assumé.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`Achats — application disponible sur ${url}`);
   openBrowser(url);

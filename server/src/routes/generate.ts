@@ -155,7 +155,12 @@ router.post('/download', async (req, res) => {
       traitePar: traitePar || null,
     });
 
-    const outName = `${path.parse(template.nomFichier).name}_${codeSousSegment}.docx`;
+    // codeSousSegment vient du champ de recherche (saisie libre) : un guillemet ou un
+    // caractère de contrôle briserait l'en-tête Content-Disposition construit à la main
+    // (contrairement à res.download() utilisé ailleurs, qui échappe correctement via la
+    // bibliothèque content-disposition). On le nettoie explicitement ici.
+    const safeCode = codeSousSegment.replace(/[^\p{L}\p{N}_-]+/gu, '-');
+    const outName = `${path.parse(template.nomFichier).name}_${safeCode}.docx`;
     res.setHeader('Content-Disposition', `attachment; filename="${outName}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.send(filled);
