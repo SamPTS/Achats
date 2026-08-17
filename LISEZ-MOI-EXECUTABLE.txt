@@ -31,3 +31,19 @@ puis "Exécuter quand même".
 
 Aucune installation de Node.js n'est nécessaire : l'exécutable embarque son
 propre runtime (Bun).
+
+Intégration dans une page SharePoint Online
+--------------------------------------------
+Pour afficher l'application dans une page SharePoint (web part "Intégrer"
+ou "Lien"), l'URL doit être en HTTPS dès qu'il s'agit d'une instance
+partagée par toute l'équipe (hébergée sur un poste/serveur du réseau) —
+sinon le navigateur bloque l'affichage pour tout le monde sauf la
+personne qui héberge. Pour l'activer, lancez l'exécutable avec :
+
+  HOST=0.0.0.0 SSL_CERT_PATH=chemin\certificat.pem SSL_KEY_PATH=chemin\cle.pem AchatsContrats.exe
+
+(certificat à obtenir auprès de votre équipe informatique). Voir le
+README du dépôt pour le détail. Si vous êtes la seule personne à utiliser
+l'application sur votre propre poste, aucun réglage n'est nécessaire :
+http://localhost:4000 s'affiche déjà normalement dans une page SharePoint
+consultée depuis ce même poste.

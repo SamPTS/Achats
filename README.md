@@ -69,6 +69,45 @@ statiques dans le binaire — un seul fichier à distribuer, mais ~65 Mo au lieu
 de ~115 Mo) reste disponible via `npm run build:exe:pkg-legacy` dans
 `server/`.
 
+## Hébergement partagé et intégration dans SharePoint Online
+
+L'application reste une architecture classique client/serveur (pas une
+application SPFx native) : elle ne "tourne" pas dans SharePoint, mais peut
+être **affichée depuis** une page SharePoint via un lien ou un web part
+« Intégrer », à condition d'être joignable en HTTPS.
+
+- **Usage individuel** (chacun lance l'exécutable sur son poste) : rien à
+  faire, `http://localhost:4000` bénéficie d'une exception navigateur pour
+  le contenu mixte et s'affiche normalement dans une page SharePoint (HTTPS)
+  consultée depuis ce même poste.
+- **Instance unique partagée par toute l'équipe** (un poste/serveur du
+  réseau fait tourner l'application en continu) : un navigateur bloque par
+  défaut l'affichage d'un contenu `http://` non-local dans une page
+  SharePoint (`https://`) — un certificat est nécessaire. Deux variables
+  d'environnement activent le HTTPS natif du serveur :
+
+  ```bash
+  HOST=0.0.0.0 \
+  SSL_CERT_PATH=C:\chemin\vers\certificat.pem \
+  SSL_KEY_PATH=C:\chemin\vers\cle-privee.pem \
+  AchatsContrats.exe
+  ```
+
+  `HOST` élargit l'écoute au-delà de `127.0.0.1` (nécessaire pour être
+  joignable par les autres postes) ; `SSL_CERT_PATH`/`SSL_KEY_PATH` pointent
+  vers un certificat et sa clé privée (au format PEM) obtenus auprès de
+  l'autorité de certification interne de l'organisation, ou de tout
+  fournisseur de certificat reconnu par les navigateurs des utilisateurs — un
+  certificat auto-signé fonctionne techniquement mais affiche un
+  avertissement de sécurité à chaque utilisateur. Sans certificat, le
+  serveur avertit dans sa console et reste en HTTP.
+
+  Côté SharePoint : sur une page moderne, ajouter le web part **« Intégrer »**
+  (Embed) ou **« Lien »**, et y coller l'URL HTTPS de l'application. Aucune
+  configuration côté tenant SharePoint (App Catalog, permissions API) n'est
+  nécessaire — ce n'est qu'une intégration visuelle d'iframe/lien, pas une
+  application SPFx installée.
+
 ## Démarrage rapide (Windows) — pour tester sans taper de commande
 
 Double-clique sur **`lancer-application.bat`** (à la racine du dépôt). Le
