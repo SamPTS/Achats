@@ -114,6 +114,16 @@ router.post('/:id/activate', (req, res) => {
 router.post('/:id/archive', (req, res) => {
   const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
+  // Le bouton "Archiver" est désactivé côté client pour la version active, mais rien ne
+  // l'empêchait ici : archiver la version active laissait l'application sans aucune version
+  // active, ce qui désactive silencieusement la détection des mappings devenus invalides
+  // (colonneIntrouvable) — voir isMappingComplete/mappingStatus, qui ne pénalisent pas une
+  // colonne mappée quand aucun référentiel actif n'est disponible.
+  if (row.estActive) {
+    return res.status(400).json({
+      error: "Impossible d'archiver la version active : activez une autre version au préalable.",
+    });
+  }
   conditionsVersionsTable.update(req.params.id, { archive: true, estActive: false });
   res.json({ ok: true });
 });
