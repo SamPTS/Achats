@@ -6,6 +6,7 @@ import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } f
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
 import { getActiveConditionsVersion, getConditionsVersion } from './conditionsService';
+import { odataEscape } from './odata';
 import type { MappingLine, MappingStatut, Template } from '../model/types';
 
 interface TemplateItem {
@@ -63,8 +64,14 @@ function parseVariables(json: string): string[] {
 async function getMappingsRaw(templateId: string): Promise<MappingItem[]> {
   return mappingsList()
     .items.select(...MAPPING_SELECT)
-    .filter(`TemplateId eq '${templateId}'`)
+    .filter(`TemplateId eq '${odataEscape(templateId)}'`)
     .top(2000)() as Promise<MappingItem[]>;
+}
+
+/** Récupère en un seul appel les mappings de plusieurs templates (évite un appel réseau par
+ * template — voir listTemplates, qui construisait auparavant une requête par élément affiché). */
+async function getAllMappingsRaw(): Promise<MappingItem[]> {
+  return mappingsList().items.select(...MAPPING_SELECT).top(5000)() as Promise<MappingItem[]>;
 }
 
 /** Une ligne "mappee" n'est valide que si sa colonne existe encore dans le référentiel de
@@ -82,11 +89,7 @@ function computeStatutMapping(mappings: MappingItem[], colonnesRef: string[] | n
   return mappings.every((m) => ligneValide(m, colonnesRef)) ? 'complet' : 'incomplet';
 }
 
-async function toModel(item: TemplateItem): Promise<Template> {
-  const mappingsRaw = await getMappingsRaw(String(item.Id));
-  const active = await getActiveConditionsVersion();
-  const colonnesRef = active ? active.colonnes : null;
-
+function toModelSync(item: TemplateItem, mappingsRaw: MappingItem[], colonnesRef: string[] | null): Template {
   const mappings: MappingLine[] = mappingsRaw.map((m) => ({
     variable: m.Variable,
     colonneCorrespondante: m.ColonneCorrespondante,
@@ -112,29 +115,48 @@ async function toModel(item: TemplateItem): Promise<Template> {
   };
 }
 
-/** Dernière version de chaque groupe de template, non archivée. */
+/** Dernière version de chaque groupe de template, non archivée.
+ *
+ * Récupère la version de conditions active et l'ensemble des lignes de mapping en deux appels
+ * au total, plutôt qu'un appel par template affiché (ancienne version : 2N+1 appels réseau pour
+ * afficher N templates — chaque appel étant un aller-retour HTTP complet vers SharePoint,
+ * contrairement à l'équivalent côté serveur de l'application autonome, où le même calcul était
+ * une simple recherche en mémoire). */
 export async function listTemplates(): Promise<Template[]> {
   await ensureProvisioned();
-  const items = (await templatesList()
-    .items.select(...TEMPLATE_SELECT)
-    .filter('Archive eq 0')
-    .top(2000)()) as TemplateItem[];
+  const [items, allMappings, active] = await Promise.all([
+    templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
+    getAllMappingsRaw(),
+    getActiveConditionsVersion(),
+  ]);
+  const colonnesRef = active ? active.colonnes : null;
+
+  const mappingsByTemplate = new Map<string, MappingItem[]>();
+  for (const m of allMappings) {
+    const arr = mappingsByTemplate.get(m.TemplateId);
+    if (arr) arr.push(m);
+    else mappingsByTemplate.set(m.TemplateId, [m]);
+  }
+
   const latestByGroup = new Map<string, TemplateItem>();
   for (const it of items) {
     const current = latestByGroup.get(it.GroupId);
     if (!current || it.Version > current.Version) latestByGroup.set(it.GroupId, it);
   }
-  const result = Array.from(latestByGroup.values()).sort((a, b) => (a.DateDepot < b.DateDepot ? 1 : -1));
-  return Promise.all(result.map(toModel));
+  return Array.from(latestByGroup.values())
+    .sort((a, b) => (a.DateDepot < b.DateDepot ? 1 : -1))
+    .map((it) => toModelSync(it, mappingsByTemplate.get(String(it.Id)) ?? [], colonnesRef));
 }
 
 export async function getTemplate(id: string): Promise<Template | undefined> {
   await ensureProvisioned();
   try {
-    const item = (await templatesList()
-      .items.getById(Number(id))
-      .select(...TEMPLATE_SELECT)()) as TemplateItem;
-    return await toModel(item);
+    const [item, mappingsRaw, active] = await Promise.all([
+      templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>,
+      getMappingsRaw(id),
+      getActiveConditionsVersion(),
+    ]);
+    return toModelSync(item, mappingsRaw, active ? active.colonnes : null);
   } catch {
     return undefined;
   }
@@ -158,7 +180,7 @@ export async function uploadTemplate(opts: {
   const groupId = opts.groupId || crypto.randomUUID();
   const previousVersions = (await templatesList()
     .items.select('Version')
-    .filter(`GroupId eq '${groupId}'`)()) as { Version: number }[];
+    .filter(`GroupId eq '${odataEscape(groupId)}'`)()) as { Version: number }[];
   const version = previousVersions.reduce((max, t) => Math.max(max, t.Version), 0) + 1;
 
   const storedName = buildStoredFilename('template', libelle, 'docx');
