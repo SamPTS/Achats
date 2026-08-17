@@ -1,0 +1,243 @@
+/*
+ * Feuille de style portée depuis client/src/styles.css (application autonome).
+ * Différences par rapport à l'original :
+ * - tout est scopé sous .achatsContrats (pas de sélecteur `body`/`*` global qui
+ *   affecterait le reste de la page SharePoint autour du web part) ;
+ * - .layout / .sidebar disparaissent : la navigation entre les 3 modules se fait
+ *   via un Pivot (onglets) plutôt qu'une barre latérale + routes, plus adapté à
+ *   un web part inséré dans une page plus large.
+ */
+.achatsContrats {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --border: #dde1e6;
+  --text: #000000;
+  --muted: #75787b;
+  --brand-green: #00cf77;
+  --brand-green-tint: #e3f7ec;
+  --brand-gold: #b8860b;
+  --primary: #00874c;
+  --primary-dark: #00693b;
+  --danger: #b3261e;
+  --ok: #00874c;
+  --warn: #a35c00;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  padding: 1rem;
+  border-radius: 10px;
+
+  :global {
+    * {
+      box-sizing: border-box;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 0.25rem;
+    }
+    .subtitle {
+      color: var(--muted);
+      margin-top: 0;
+      margin-bottom: 1.5rem;
+      font-size: 0.92rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition:
+        border-color 0.15s,
+        background 0.15s;
+    }
+    .dropzone.dragover {
+      border-color: var(--primary);
+      background: var(--brand-green-tint);
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+    .form-row label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    .form-row input[type='text'],
+    .form-row select,
+    .form-row input[type='search'] {
+      padding: 0.5rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.92rem;
+      min-width: 220px;
+    }
+
+    button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background: var(--primary-dark);
+    }
+    button:disabled {
+      background: #b7c3d1;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+    }
+    button.secondary:hover {
+      background: var(--brand-green-tint);
+    }
+    button.danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th,
+    td {
+      text-align: left;
+      padding: 0.55rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tr:hover td {
+      background: #fafbfc;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.ok {
+      background: var(--brand-green-tint);
+      color: var(--ok);
+    }
+    .badge.warn {
+      background: #fdf1e0;
+      color: var(--warn);
+    }
+    .badge.danger {
+      background: #fbe9e7;
+      color: var(--danger);
+    }
+    .badge.muted {
+      background: #eceef1;
+      color: var(--muted);
+    }
+
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+    .alert.error {
+      background: #fbe9e7;
+      color: var(--danger);
+      border: 1px solid #f3c6c0;
+    }
+    .alert.info {
+      background: var(--brand-green-tint);
+      color: var(--primary-dark);
+      border: 1px solid #bfe3c9;
+    }
+    .alert.success {
+      background: var(--brand-green-tint);
+      color: var(--ok);
+      border: 1px solid #bfe3c9;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+    .small {
+      font-size: 0.82rem;
+    }
+    .mt1 {
+      margin-top: 1rem;
+    }
+    .mb0 {
+      margin-bottom: 0;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 0.9rem;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .field label {
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .field input {
+      padding: 0.5rem 0.6rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.92rem;
+    }
+    .field.free label::after {
+      content: ' (saisie libre)';
+      color: var(--warn);
+    }
+  }
+}
+
+.brandHeader {
+  font-weight: 700;
+  font-size: 1.15rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid #b8860b;
+}
+
+.pivotWrap {
+  margin-bottom: 1rem;
+}

@@ -1,0 +1,23 @@
+{
+  "@microsoft/generator-sharepoint": {
+    "whichFolder": "subdir",
+    "solutionName": "achats-contrats",
+    "environment": "spo",
+    "packageManager": "npm",
+    "skipFeatureDeployment": true,
+    "useGulp": false,
+    "componentType": "webpart",
+    "template": "react",
+    "componentName": "AchatsContrats",
+    "componentDescription": "Generateur de contrats fournisseurs",
+    "plusBeta": false,
+    "isCreatingSolution": true,
+    "nodeVersion": "22.22.2",
+    "sdksVersions": {},
+    "version": "1.23.2",
+    "libraryName": "achats-contrats",
+    "libraryId": "1da9169c-6a80-4049-a6a3-85fd5e9aa94a",
+    "solutionShortDescription": "achats-contrats description",
+    "isDomainIsolated": false
+  }
+}
