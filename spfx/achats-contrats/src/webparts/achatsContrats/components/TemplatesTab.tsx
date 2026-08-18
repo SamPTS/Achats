@@ -23,6 +23,10 @@ export default function TemplatesTab(): JSX.Element {
 
   async function refresh(): Promise<void> {
     const [t, c] = await Promise.all([templatesService.listTemplates(), conditionsService.listConditions()]);
+    // Voir ConditionsTab.tsx : efface une erreur laissée par un rechargement précédent échoué,
+    // pour ne pas afficher un message d'erreur périmé au-dessus de données qui viennent de
+    // charger avec succès.
+    setError(null);
     setTemplates(t);
     setConditions(c);
     setSelected((cur) => (cur ? t.find((x) => x.id === cur.id) ?? null : cur));

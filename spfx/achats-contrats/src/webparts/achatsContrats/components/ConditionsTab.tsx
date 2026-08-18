@@ -17,7 +17,13 @@ export default function ConditionsTab(): JSX.Element {
   const fileInput = useRef<HTMLInputElement>(null);
 
   async function refresh(): Promise<void> {
-    setVersions(await conditionsService.listConditions());
+    const list = await conditionsService.listConditions();
+    // Efface une éventuelle erreur d'un rechargement précédent : sans ça, une erreur transitoire
+    // (ex. lecture juste après provisionnement à froid) reste affichée indéfiniment même une fois
+    // qu'un rechargement suivant a réussi et que les données s'affichent normalement — trompeur
+    // pour l'utilisateur, qui voit un message d'erreur sur un écran qui fonctionne en réalité.
+    setError(null);
+    setVersions(list);
   }
 
   useEffect(() => {
