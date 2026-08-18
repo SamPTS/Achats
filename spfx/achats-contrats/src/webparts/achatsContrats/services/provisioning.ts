@@ -42,6 +42,24 @@ async function ensureField(add: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/**
+ * Réessaie une fois, après une courte pause, un appel qui échoue. Utilisé par les services pour
+ * les toutes premières lectures suivant un provisionnement (voir doProvisionOnce ci-dessous) : la
+ * propagation des métadonnées d'une liste/d'un champ tout juste créés par SharePoint peut prendre
+ * quelques secondes, et une lecture immédiate peut échouer une fois avec une erreur générique
+ * avant de fonctionner normalement à la tentative suivante — observé en conditions réelles sur un
+ * tenant. Ne masque pas un échec persistant : si la deuxième tentative échoue aussi, l'erreur
+ * d'origine remonte normalement à l'appelant.
+ */
+export async function retryOnce<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch {
+    await delay(1500);
+    return fn();
+  }
+}
+
 let provisioned: Promise<void> | undefined;
 
 /**
@@ -64,6 +82,10 @@ function storageKey(): string {
   return `achats-contrats-provisioned-v1:${webUrl}`;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function doProvisionOnce(): Promise<void> {
   const key = storageKey();
   try {
@@ -74,6 +96,16 @@ async function doProvisionOnce(): Promise<void> {
   }
 
   await doProvision();
+
+  // Sur un site où les listes viennent tout juste d'être créées (première ouverture jamais faite
+  // ici), SharePoint met parfois quelques secondes à propager les métadonnées des listes/champs
+  // fraîchement créés. Une lecture immédiate après provisionnement peut alors échouer avec une
+  // erreur générique et mal formulée par PnPjs ("Cannot read properties of undefined (reading
+  // 'Id')") plutôt qu'un message exploitable — observé en conditions réelles sur un tenant. Ce
+  // court délai (seulement lors d'un provisionnement fraîchement effectué, jamais sur les
+  // chargements suivants où ensureProvisioned() est instantané) laisse le temps à cette
+  // propagation de se terminer avant que l'écran ne tente sa première lecture.
+  await delay(3000);
 
   try {
     window.localStorage.setItem(key, '1');

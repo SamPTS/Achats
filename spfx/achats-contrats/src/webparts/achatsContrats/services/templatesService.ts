@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryOnce, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
@@ -125,8 +125,10 @@ function toModelSync(item: TemplateItem, mappingsRaw: MappingItem[], colonnesRef
 export async function listTemplates(): Promise<Template[]> {
   await ensureProvisioned();
   const [items, allMappings, active] = await Promise.all([
-    templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
-    getAllMappingsRaw(),
+    retryOnce(
+      () => templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
+    ),
+    retryOnce(() => getAllMappingsRaw()),
     getActiveConditionsVersion(),
   ]);
   const colonnesRef = active ? active.colonnes : null;
