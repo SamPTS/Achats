@@ -69,6 +69,32 @@ export async function retryOnce<T>(fn: () => Promise<T>, attempts = 3): Promise<
   throw lastError;
 }
 
+/**
+ * Variante de retryOnce pour le cas où le délai de propagation ne se traduit pas par une erreur,
+ * mais par une lecture qui « réussit » avec un résultat incomplet — observé en conditions réelles :
+ * juste après le dépôt d'un template, les lignes de mapping tout juste créées peuvent être absentes
+ * d'une lecture qui suit de très près, sans qu'aucune exception ne soit levée (contrairement au cas
+ * couvert par retryOnce). isValid détermine si le résultat obtenu est exploitable ; si non, on
+ * réessaie avec le même délai croissant. Si aucune tentative n'est valide, retourne quand même le
+ * dernier résultat obtenu (jamais d'exception artificielle) — un mapping resté vide après toutes
+ * les tentatives est un état légitime (template qui n'a simplement aucune variable), pas une erreur.
+ */
+export async function retryUntilValid<T>(fn: () => Promise<T>, isValid: (v: T) => boolean, attempts = 3): Promise<T> {
+  let last: T | undefined;
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      last = await fn();
+      if (isValid(last)) return last;
+    } catch (e) {
+      lastError = e;
+    }
+    if (i < attempts - 1) await delay(1500 * (i + 1));
+  }
+  if (last !== undefined) return last;
+  throw lastError;
+}
+
 let provisioned: Promise<void> | undefined;
 
 /**

@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryOnce, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryUntilValid, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
@@ -124,11 +124,25 @@ function toModelSync(item: TemplateItem, mappingsRaw: MappingItem[], colonnesRef
  * une simple recherche en mémoire). */
 export async function listTemplates(): Promise<Template[]> {
   await ensureProvisioned();
-  const [items, allMappings, active] = await Promise.all([
-    retryOnce(
-      () => templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
+  const [{ items, allMappings }, active] = await Promise.all([
+    // Voir retryUntilValid : juste après le dépôt d'un template, ses lignes de mapping tout juste
+    // créées peuvent être absentes d'une première lecture sans qu'aucune erreur ne soit levée (pas
+    // couvert par retryOnce seul) — on revérifie que chaque template a bien au moins autant de
+    // lignes de mapping que de variables déclarées avant d'accepter le résultat.
+    retryUntilValid(
+      async () => {
+        const [items, allMappings] = await Promise.all([
+          templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
+          getAllMappingsRaw(),
+        ]);
+        return { items, allMappings };
+      },
+      ({ items, allMappings }) => {
+        const counts = new Map<string, number>();
+        for (const m of allMappings) counts.set(m.TemplateId, (counts.get(m.TemplateId) ?? 0) + 1);
+        return items.every((it) => parseVariables(it.Variables).length <= (counts.get(String(it.Id)) ?? 0));
+      },
     ),
-    retryOnce(() => getAllMappingsRaw()),
     getActiveConditionsVersion(),
   ]);
   const colonnesRef = active ? active.colonnes : null;
@@ -153,9 +167,19 @@ export async function listTemplates(): Promise<Template[]> {
 export async function getTemplate(id: string): Promise<Template | undefined> {
   await ensureProvisioned();
   try {
-    const [item, mappingsRaw, active] = await Promise.all([
-      retryOnce(() => templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>),
-      retryOnce(() => getMappingsRaw(id)),
+    const [{ item, mappingsRaw }, active] = await Promise.all([
+      // Voir listTemplates : même garde contre une lecture réussie mais incomplète juste après le
+      // dépôt du template (mapping tout juste créé pas encore visible).
+      retryUntilValid(
+        async () => {
+          const [item, mappingsRaw] = await Promise.all([
+            templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>,
+            getMappingsRaw(id),
+          ]);
+          return { item, mappingsRaw };
+        },
+        ({ item, mappingsRaw }) => parseVariables(item.Variables).length <= mappingsRaw.length,
+      ),
       getActiveConditionsVersion(),
     ]);
     return toModelSync(item, mappingsRaw, active ? active.colonnes : null);
