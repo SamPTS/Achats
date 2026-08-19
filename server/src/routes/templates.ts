@@ -228,9 +228,18 @@ router.post('/:id/mapping', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Incohérences détectées dans le mapping.', details: erreurs });
     }
 
+    // Une variable marquée "saisie libre" avant l'import, et non renseignée dans le fichier de
+    // mapping importé (ligne absente ou colonne vide), garde ce statut plutôt que de repasser
+    // silencieusement à "manquante" : l'import ne doit modifier que les variables qu'il renseigne
+    // effectivement, pas réinitialiser tout le reste du mapping.
+    const mappingsAvant = getMappings(row.id);
     for (const variable of variables) {
       const colonne = byVariable.get(variable) ?? null;
-      const statut = colonne ? 'mappee' : 'manquante';
+      let statut: 'mappee' | 'libre' | 'manquante' = colonne ? 'mappee' : 'manquante';
+      if (!colonne) {
+        const avant = mappingsAvant.find((m) => m.variable === variable);
+        if (avant?.statut === 'libre') statut = 'libre';
+      }
       mappingsTable.updateWhere(
         (m) => m.templateId === row.id && m.variable === variable,
         { colonneCorrespondante: colonne, statut }

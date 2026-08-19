@@ -301,14 +301,18 @@ export async function importMapping(templateId: string, file: File, conditionsVe
 
   if (errors.length > 0) return { errors };
 
+  // Une variable marquée "saisie libre" avant l'import, et non renseignée dans le fichier importé
+  // (ligne absente ou colonne vide), garde ce statut plutôt que de repasser silencieusement à
+  // "manquante" : l'import ne doit modifier que les variables qu'il renseigne effectivement.
   const mappingsRaw = await getMappingsRaw(templateId);
   await Promise.all(
     variables.map((variable) => {
       const colonne = byVariable.get(variable) ?? null;
-      const statut: MappingStatut = colonne ? 'mappee' : 'manquante';
-      const row = mappingsRaw.find((m) => m.Variable === variable);
-      if (!row) return Promise.resolve();
-      return mappingsList().items.getById(row.Id).update({ ColonneCorrespondante: colonne, Statut: statut });
+      const avant = mappingsRaw.find((m) => m.Variable === variable);
+      let statut: MappingStatut = colonne ? 'mappee' : 'manquante';
+      if (!colonne && avant?.Statut === 'libre') statut = 'libre';
+      if (!avant) return Promise.resolve();
+      return mappingsList().items.getById(avant.Id).update({ ColonneCorrespondante: colonne, Statut: statut });
     }),
   );
 
