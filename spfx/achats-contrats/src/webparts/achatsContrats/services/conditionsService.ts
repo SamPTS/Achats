@@ -136,9 +136,9 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
     Archive: false,
   });
 
-  const created = (await list()
-    .items.getById(iar.data.Id)
-    .select(...SELECT_FIELDS)()) as ConditionsVersionItem;
+  const created = (await retryOnce(() =>
+    list().items.getById(iar.data.Id).select(...SELECT_FIELDS)(),
+  )) as ConditionsVersionItem;
   return toModel(created);
 }
 

@@ -154,8 +154,8 @@ export async function getTemplate(id: string): Promise<Template | undefined> {
   await ensureProvisioned();
   try {
     const [item, mappingsRaw, active] = await Promise.all([
-      templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>,
-      getMappingsRaw(id),
+      retryOnce(() => templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>),
+      retryOnce(() => getMappingsRaw(id)),
       getActiveConditionsVersion(),
     ]);
     return toModelSync(item, mappingsRaw, active ? active.colonnes : null);

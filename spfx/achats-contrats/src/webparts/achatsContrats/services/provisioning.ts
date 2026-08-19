@@ -43,21 +43,30 @@ async function ensureField(add: () => Promise<unknown>): Promise<void> {
 }
 
 /**
- * Réessaie une fois, après une courte pause, un appel qui échoue. Utilisé par les services pour
- * les toutes premières lectures suivant un provisionnement (voir doProvisionOnce ci-dessous) : la
- * propagation des métadonnées d'une liste/d'un champ tout juste créés par SharePoint peut prendre
- * quelques secondes, et une lecture immédiate peut échouer une fois avec une erreur générique
- * avant de fonctionner normalement à la tentative suivante — observé en conditions réelles sur un
- * tenant. Ne masque pas un échec persistant : si la deuxième tentative échoue aussi, l'erreur
- * d'origine remonte normalement à l'appelant.
+ * Réessaie un appel qui échoue, avec un délai croissant entre chaque tentative. Utilisé par les
+ * services pour toute lecture susceptible de suivre de près une écriture (provisionnement à froid
+ * d'une liste, mais aussi — observé en conditions réelles sur un tenant — une simple relecture de
+ * liste juste après l'ajout d'une ligne, ex. juste après le dépôt d'un fichier de conditions) : la
+ * propagation d'une écriture SharePoint (nouvelle liste, nouveau champ, ou simplement une nouvelle
+ * ligne) n'est pas toujours immédiatement visible à une lecture filtrée qui suit de très près,
+ * d'où l'erreur générique PnPjs "Cannot read properties of undefined (reading 'Id')" observée de
+ * façon reproductible juste après un dépôt. Un seul essai de rattrapage (1,5 s) s'est avéré
+ * insuffisant dans ce cas précis (délai de propagation plus long qu'après un simple provisionnement
+ * de liste) — jusqu'à 3 tentatives au total, délais croissants (1,5 s / 3 s). Ne masque jamais un
+ * échec réellement persistant : si toutes les tentatives échouent, l'erreur d'origine de la
+ * dernière tentative remonte normalement à l'appelant.
  */
-export async function retryOnce<T>(fn: () => Promise<T>): Promise<T> {
-  try {
-    return await fn();
-  } catch {
-    await delay(1500);
-    return fn();
+export async function retryOnce<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (i < attempts - 1) await delay(1500 * (i + 1));
+    }
   }
+  throw lastError;
 }
 
 let provisioned: Promise<void> | undefined;
