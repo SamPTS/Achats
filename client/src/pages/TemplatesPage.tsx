@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   downloadBlankMappingUrl,
   downloadTemplateUrl,
+  getTemplateVersions,
   listConditions,
   listTemplates,
   setMappingLine,
@@ -24,6 +25,7 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [conditions, setConditions] = useState<ConditionsVersion[]>([]);
   const [selected, setSelected] = useState<Template | null>(null);
+  const [historiqueGroupId, setHistoriqueGroupId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
 
@@ -92,9 +94,12 @@ export default function TemplatesPage() {
                 <td>{fmtDate(t.dateDepot)}</td>
                 <td>{t.variables.length}</td>
                 <td>{statusBadge(t.statutMapping)}</td>
-                <td>
+                <td style={{ display: 'flex', gap: '0.4rem' }}>
                   <button className="secondary" onClick={() => setSelected(t)}>
                     Gérer le mapping
+                  </button>
+                  <button className="secondary" onClick={() => setHistoriqueGroupId(t.groupId)}>
+                    Historique
                   </button>
                 </td>
               </tr>
@@ -118,6 +123,69 @@ export default function TemplatesPage() {
           onClose={() => setSelected(null)}
           onChanged={refresh}
         />
+      )}
+
+      {historiqueGroupId && (
+        <HistoriquePanel groupId={historiqueGroupId} onClose={() => setHistoriqueGroupId(null)} />
+      )}
+    </div>
+  );
+}
+
+function HistoriquePanel({ groupId, onClose }: { groupId: string; onClose: () => void }) {
+  const [versions, setVersions] = useState<Template[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTemplateVersions(groupId)
+      .then(setVersions)
+      .catch((e) => setError(e.message));
+  }, [groupId]);
+
+  return (
+    <div className="panel">
+      <div className="form-row" style={{ justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0 }}>Historique des versions</h2>
+        <button className="secondary" onClick={onClose}>
+          Fermer
+        </button>
+      </div>
+      {error && <div className="alert error">{error}</div>}
+      {!versions && !error && <p className="muted small">Chargement…</p>}
+      {versions && (
+        <table className="mt1">
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Dépôt</th>
+              <th>Variables</th>
+              <th>Statut mapping</th>
+              <th>Déposé par</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {versions.map((v) => (
+              <tr key={v.id}>
+                <td>v{v.version}</td>
+                <td>{fmtDate(v.dateDepot)}</td>
+                <td>{v.variables.length}</td>
+                <td>{statusBadge(v.statutMapping)}</td>
+                <td>{v.deposePar || <span className="muted">—</span>}</td>
+                <td>
+                  <a href={downloadTemplateUrl(v.id)}>Télécharger</a>
+                </td>
+              </tr>
+            ))}
+            {versions.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  Aucune version trouvée.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       )}
     </div>
   );

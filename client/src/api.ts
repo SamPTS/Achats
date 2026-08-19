@@ -1,4 +1,4 @@
-import type { ConditionsVersion, GenerateTemplateOption, SearchMatch, Template } from './types';
+import type { ConditionsVersion, GenerateTemplateOption, GenerationLogEntry, SearchMatch, Template } from './types';
 
 async function handleJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -131,6 +131,10 @@ export function getMappedValues(
   return fetch(
     `/api/generate/mapped-values?conditionsVersionId=${conditionsVersionId}&templateId=${templateId}&rowIndex=${rowIndex}`
   ).then((r) => handleJson(r));
+}
+
+export function listGenerationLog(): Promise<GenerationLogEntry[]> {
+  return fetch('/api/generate/log').then((r) => handleJson(r));
 }
 
 export async function generateContract(payload: {

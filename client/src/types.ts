@@ -45,3 +45,12 @@ export interface SearchMatch {
   rowIndex: number;
   preview: Record<string, string>;
 }
+
+export interface GenerationLogEntry {
+  id: string;
+  dateGeneration: string;
+  codeSousSegment: string;
+  traitePar: string | null;
+  templateLibelle: string;
+  conditionsNomFichier: string;
+}

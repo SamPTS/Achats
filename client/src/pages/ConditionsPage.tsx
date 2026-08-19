@@ -13,6 +13,8 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString('fr-FR');
 }
 
+type StatutFiltre = 'tous' | 'active' | 'inactive';
+
 export default function ConditionsPage() {
   const [versions, setVersions] = useState<ConditionsVersion[]>([]);
   const [deposePar, setDeposePar] = useState('');
@@ -21,6 +23,23 @@ export default function ConditionsPage() {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Recherche & filtrage des conditions commerciales.
+  const [rechercheTexte, setRechercheTexte] = useState('');
+  const [filtreStatut, setFiltreStatut] = useState<StatutFiltre>('tous');
+
+  const versionsFiltrees = versions.filter((v) => {
+    if (filtreStatut === 'active' && !v.estActive) return false;
+    if (filtreStatut === 'inactive' && v.estActive) return false;
+    const q = rechercheTexte.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      v.nomFichier.toLowerCase().includes(q) ||
+      (v.deposePar ?? '').toLowerCase().includes(q) ||
+      (v.colonneCodeSousSegment ?? '').toLowerCase().includes(q) ||
+      v.colonnes.some((c) => c.toLowerCase().includes(q))
+    );
+  });
 
   async function refresh() {
     setVersions(await listConditions());
@@ -105,6 +124,28 @@ export default function ConditionsPage() {
       </div>
 
       <div className="panel">
+        <div className="form-row">
+          <div>
+            <label>Rechercher</label>
+            <input
+              type="search"
+              value={rechercheTexte}
+              onChange={(e) => setRechercheTexte(e.target.value)}
+              placeholder="Nom de fichier, déposé par, colonne…"
+            />
+          </div>
+          <div>
+            <label>Statut</label>
+            <select value={filtreStatut} onChange={(e) => setFiltreStatut(e.target.value as StatutFiltre)}>
+              <option value="tous">Tous</option>
+              <option value="active">Actives</option>
+              <option value="inactive">Historisées</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
         <table>
           <thead>
             <tr>
@@ -119,13 +160,20 @@ export default function ConditionsPage() {
             </tr>
           </thead>
           <tbody>
-            {versions.map((v) => (
+            {versionsFiltrees.map((v) => (
               <VersionRow key={v.id} version={v} onChanged={refresh} />
             ))}
             {versions.length === 0 && (
               <tr>
                 <td colSpan={8} className="muted">
                   Aucun fichier déposé pour l'instant.
+                </td>
+              </tr>
+            )}
+            {versions.length > 0 && versionsFiltrees.length === 0 && (
+              <tr>
+                <td colSpan={8} className="muted">
+                  Aucun résultat pour ces critères de recherche.
                 </td>
               </tr>
             )}

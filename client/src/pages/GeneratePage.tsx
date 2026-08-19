@@ -1,6 +1,17 @@
 import { useEffect, useState } from 'react';
-import { generateContract, getMappedValues, listConditions, listGenerableTemplates, searchCode } from '../api';
-import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../types';
+import {
+  generateContract,
+  getMappedValues,
+  listConditions,
+  listGenerableTemplates,
+  listGenerationLog,
+  searchCode,
+} from '../api';
+import type { ConditionsVersion, GenerateTemplateOption, GenerationLogEntry, SearchMatch } from '../types';
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleString('fr-FR');
+}
 
 export default function GeneratePage() {
   const [templates, setTemplates] = useState<GenerateTemplateOption[]>([]);
@@ -18,6 +29,12 @@ export default function GeneratePage() {
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [log, setLog] = useState<GenerationLogEntry[]>([]);
+
+  async function refreshLog() {
+    setLog(await listGenerationLog());
+  }
+
   useEffect(() => {
     Promise.all([listGenerableTemplates(), listConditions()]).then(([t, c]) => {
       setTemplates(t);
@@ -26,6 +43,7 @@ export default function GeneratePage() {
       const active = c.find((x) => x.estActive);
       if (active) setConditionsVersionId(active.id);
     });
+    refreshLog().catch((e) => setError(e.message));
   }, []);
 
   function resetSearch() {
@@ -93,6 +111,7 @@ export default function GeneratePage() {
       a.remove();
       URL.revokeObjectURL(url);
       setInfo('Contrat généré et téléchargé.');
+      await refreshLog();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -230,6 +249,43 @@ export default function GeneratePage() {
           </button>
         </div>
       )}
+
+      <div className="panel">
+        <h2 className="mb0">Historique des générations</h2>
+        <p className="muted small">
+          Traçabilité de chaque contrat généré : template, fichier de conditions et code sous-segment
+          utilisés.
+        </p>
+        <table className="mt1">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Template</th>
+              <th>Fichier de conditions</th>
+              <th>Code sous-segment</th>
+              <th>Traité par</th>
+            </tr>
+          </thead>
+          <tbody>
+            {log.map((g) => (
+              <tr key={g.id}>
+                <td>{fmtDate(g.dateGeneration)}</td>
+                <td>{g.templateLibelle}</td>
+                <td>{g.conditionsNomFichier}</td>
+                <td>{g.codeSousSegment}</td>
+                <td>{g.traitePar || <span className="muted">—</span>}</td>
+              </tr>
+            ))}
+            {log.length === 0 && (
+              <tr>
+                <td colSpan={5} className="muted">
+                  Aucun contrat généré pour l'instant.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

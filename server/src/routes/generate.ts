@@ -139,10 +139,22 @@ router.post('/download', async (req, res) => {
   }
 });
 
-// Journal des générations (traçabilité).
+// Journal des générations (traçabilité) — enrichi avec les libellés lisibles.
 router.get('/log', (_req, res) => {
   const rows = generationsTable.all().sort((a, b) => (a.dateGeneration < b.dateGeneration ? 1 : -1));
-  res.json(rows.slice(0, 200));
+  const enriched = rows.slice(0, 200).map((g) => {
+    const template = templatesTable.getById(g.templateId);
+    const conditions = getConditionsVersion(g.conditionsVersionId);
+    return {
+      id: g.id,
+      dateGeneration: g.dateGeneration,
+      codeSousSegment: g.codeSousSegment,
+      traitePar: g.traitePar,
+      templateLibelle: template ? `${template.libelle} (v${template.version})` : '(template supprimé)',
+      conditionsNomFichier: conditions ? conditions.nomFichier : '(fichier supprimé)',
+    };
+  });
+  res.json(enriched);
 });
 
 export default router;
