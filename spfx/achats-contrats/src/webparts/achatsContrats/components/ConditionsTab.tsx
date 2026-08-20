@@ -180,6 +180,25 @@ function VersionRow({
     }
   }
 
+  async function remove(): Promise<void> {
+    if (
+      !confirm(
+        `Supprimer définitivement la version "${version.nomFichier}" (${fmtDate(version.dateDepot)}) ? Cette action est irréversible : le fichier déposé sera également supprimé.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await conditionsService.deleteConditions(version.id);
+      await onChanged();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'ConditionsTab.VersionRow.remove'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <tr>
       <td>
@@ -234,9 +253,14 @@ function VersionRow({
       <td>{version.doublonsDetectes > 0 && <span className="badge warn">{version.doublonsDetectes} doublon(s)</span>}</td>
       <td>
         {error && <div className="alert error small">{error}</div>}
-        <button className="danger" disabled={busy || version.estActive} onClick={archive}>
-          Archiver
-        </button>
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button className="danger" disabled={busy || version.estActive} onClick={archive}>
+            Archiver
+          </button>
+          <button className="danger" disabled={busy || version.estActive} onClick={remove}>
+            Supprimer
+          </button>
+        </div>
       </td>
     </tr>
   );

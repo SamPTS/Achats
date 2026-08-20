@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  deleteTemplate,
   downloadBlankMappingUrl,
   downloadTemplateUrl,
   listConditions,
@@ -43,6 +44,23 @@ export default function TemplatesPage() {
   }, []);
 
   const activeConditions = conditions.find((c) => c.estActive) ?? null;
+
+  async function remove(t: Template) {
+    if (
+      !confirm(
+        `Supprimer définitivement le template "${t.libelle}" (v${t.version}) ? Cette action est irréversible : le fichier déposé et son mapping seront également supprimés.`,
+      )
+    )
+      return;
+    setError(null);
+    try {
+      await deleteTemplate(t.id);
+      if (selected?.id === t.id) setSelected(null);
+      await refresh();
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }
 
   return (
     <div>
@@ -93,9 +111,14 @@ export default function TemplatesPage() {
                 <td>{t.variables.length}</td>
                 <td>{statusBadge(t.statutMapping)}</td>
                 <td>
-                  <button className="secondary" onClick={() => setSelected(t)}>
-                    Gérer le mapping
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button className="secondary" onClick={() => setSelected(t)}>
+                      Gérer le mapping
+                    </button>
+                    <button className="danger" onClick={() => remove(t)}>
+                      Supprimer
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

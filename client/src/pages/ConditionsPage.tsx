@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   activateConditions,
   archiveConditions,
+  deleteConditions,
   downloadConditionsUrl,
   listConditions,
   setConditionsCodeColumn,
@@ -140,6 +141,7 @@ function VersionRow({ version, onChanged }: { version: ConditionsVersion; onChan
   const [busy, setBusy] = useState(false);
   const [choosingCol, setChoosingCol] = useState(false);
   const [col, setCol] = useState(version.colonneCodeSousSegment ?? '');
+  const [rowError, setRowError] = useState<string | null>(null);
 
   async function activate() {
     setBusy(true);
@@ -154,9 +156,31 @@ function VersionRow({ version, onChanged }: { version: ConditionsVersion; onChan
   async function archive() {
     if (!confirm(`Archiver la version "${version.nomFichier}" (${fmtDate(version.dateDepot)}) ?`)) return;
     setBusy(true);
+    setRowError(null);
     try {
       await archiveConditions(version.id);
       await onChanged();
+    } catch (e) {
+      setRowError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (
+      !confirm(
+        `Supprimer définitivement la version "${version.nomFichier}" (${fmtDate(version.dateDepot)}) ? Cette action est irréversible : le fichier déposé sera également supprimé.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setRowError(null);
+    try {
+      await deleteConditions(version.id);
+      await onChanged();
+    } catch (e) {
+      setRowError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -228,9 +252,15 @@ function VersionRow({ version, onChanged }: { version: ConditionsVersion; onChan
         )}
       </td>
       <td>
-        <button className="danger" disabled={busy || version.estActive} onClick={archive}>
-          Archiver
-        </button>
+        {rowError && <div className="alert error small">{rowError}</div>}
+        <div style={{ display: 'flex', gap: '0.4rem' }}>
+          <button className="danger" disabled={busy || version.estActive} onClick={archive}>
+            Archiver
+          </button>
+          <button className="danger" disabled={busy || version.estActive} onClick={remove}>
+            Supprimer
+          </button>
+        </div>
       </td>
     </tr>
   );

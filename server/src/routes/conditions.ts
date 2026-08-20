@@ -128,6 +128,30 @@ router.post('/:id/archive', (req, res) => {
   res.json({ ok: true });
 });
 
+// Suppression définitive (contrairement à /archive, qui ne masque que la version). Supprime
+// aussi le fichier Excel déposé. Refusée pour la version active, pour la même raison que
+// l'archivage (voir /:id/archive) : ne jamais se retrouver sans aucune version active.
+router.delete('/:id', (req, res) => {
+  const row = conditionsVersionsTable.getById(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Version introuvable.' });
+  if (row.estActive) {
+    return res.status(400).json({
+      error: "Impossible de supprimer la version active : activez une autre version au préalable.",
+    });
+  }
+  const filePath = path.join(DIR_CONDITIONS, row.cheminStockage);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+      // Le fichier ne peut pas être supprimé (verrouillé, droits...) : on supprime quand même
+      // l'enregistrement, plutôt que de bloquer l'utilisateur pour un fichier orphelin.
+    }
+  }
+  conditionsVersionsTable.deleteById(req.params.id);
+  res.json({ ok: true });
+});
+
 router.get('/:id/download', (req, res) => {
   const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });

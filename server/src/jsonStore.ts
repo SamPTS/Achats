@@ -79,4 +79,22 @@ export class JsonTable<T extends Row> {
     }
     if (changed) this.persist();
   }
+
+  /** Supprime définitivement l'élément (contrairement à archive: true, qui ne fait que le masquer). */
+  deleteById(id: string): boolean {
+    const before = this.items.length;
+    this.items = this.items.filter((i) => i.id !== id);
+    const changed = this.items.length !== before;
+    if (changed) this.persist();
+    return changed;
+  }
+
+  /** Supprime tous les éléments correspondant au prédicat, retourne le nombre supprimé. */
+  deleteWhere(predicate: (item: T) => boolean): number {
+    const before = this.items.length;
+    this.items = this.items.filter((i) => !predicate(i));
+    const removed = before - this.items.length;
+    if (removed > 0) this.persist();
+    return removed;
+  }
 }

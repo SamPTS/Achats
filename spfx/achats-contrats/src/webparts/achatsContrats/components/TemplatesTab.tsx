@@ -39,6 +39,23 @@ export default function TemplatesTab(): JSX.Element {
 
   const activeConditions = conditions.find((c) => c.estActive) ?? null;
 
+  async function remove(t: Template): Promise<void> {
+    if (
+      !confirm(
+        `Supprimer définitivement le template "${t.libelle}" (v${t.version}) ? Cette action est irréversible : le fichier déposé et son mapping seront également supprimés.`,
+      )
+    )
+      return;
+    setError(null);
+    try {
+      await templatesService.deleteTemplate(t.id);
+      if (selected?.id === t.id) setSelected(null);
+      await refresh();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'TemplatesTab.remove'));
+    }
+  }
+
   return (
     <div>
       <h1>Templates de contrats</h1>
@@ -88,9 +105,14 @@ export default function TemplatesTab(): JSX.Element {
                 <td>{t.variables.length}</td>
                 <td>{statusBadge(t.statutMapping)}</td>
                 <td>
-                  <button className="secondary" onClick={() => setSelected(t)}>
-                    Gérer le mapping
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <button className="secondary" onClick={() => setSelected(t)}>
+                      Gérer le mapping
+                    </button>
+                    <button className="danger" onClick={() => remove(t)}>
+                      Supprimer
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

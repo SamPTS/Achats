@@ -2,7 +2,7 @@ import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
-import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
+import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
 import { getActiveConditionsVersion, getConditionsVersion } from './conditionsService';
@@ -360,4 +360,21 @@ export async function setMappingLine(
     ColonneCorrespondante: patch.colonneCorrespondante ?? null,
     Statut: finalStatut,
   });
+}
+
+/** Suppression définitive de cette version de template : supprime aussi ses lignes de mapping et
+ * le fichier .docx déposé. Les générations déjà journalisées référencent le template par un
+ * simple identifiant texte figé au moment de la génération : les supprimer n'affecte pas le
+ * journal existant (voir server/src/routes/templates.ts pour l'équivalent standalone). */
+export async function deleteTemplate(id: string): Promise<void> {
+  await ensureProvisioned();
+  const template = await getTemplate(id);
+  if (!template) throw new Error('Template introuvable.');
+
+  await deleteByServerRelativeUrl(template.cheminStockage);
+
+  const mappingsRaw = await getMappingsRaw(id);
+  await Promise.all(mappingsRaw.map((m) => mappingsList().items.getById(m.Id).delete()));
+
+  await templatesList().items.getById(Number(id)).delete();
 }

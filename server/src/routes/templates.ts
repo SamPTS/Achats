@@ -158,6 +158,26 @@ router.get('/:id/download', (req, res) => {
   res.download(filePath, row.nomFichier);
 });
 
+// Suppression définitive de cette version de template : supprime aussi ses lignes de mapping et
+// le fichier .docx déposé. Les générations déjà journalisées référencent le template par un
+// simple identifiant texte (jamais réécrit après coup) et conservent leurs propres libellés
+// figés au moment de la génération : les supprimer n'affecte pas le journal existant.
+router.delete('/:id', (req, res) => {
+  const row = templatesTable.getById(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Template introuvable.' });
+  const filePath = path.join(DIR_TEMPLATES, row.cheminStockage);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch {
+      // Fichier verrouillé ou droits insuffisants : on supprime quand même l'enregistrement.
+    }
+  }
+  mappingsTable.deleteWhere((m) => m.templateId === req.params.id);
+  templatesTable.deleteById(req.params.id);
+  res.json({ ok: true });
+});
+
 // Génère le fichier de mapping vierge (Variable | Colonne correspondante | Colonnes disponibles).
 router.get('/:id/mapping/blank', async (req, res) => {
   const row = templatesTable.getById(req.params.id);

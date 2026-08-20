@@ -49,3 +49,16 @@ export async function downloadFromServerRelativeUrl(serverRelativeUrl: string): 
   const sp = getSP();
   return sp.web.getFileByServerRelativePath(serverRelativeUrl).getBuffer();
 }
+
+/** Supprime définitivement un fichier à partir de son chemin relatif au serveur. N'échoue pas si
+ * le fichier est déjà absent (cohérent avec fs.unlinkSync + existsSync côté standalone : un
+ * enregistrement dont le fichier a disparu ne doit pas empêcher sa suppression). */
+export async function deleteByServerRelativeUrl(serverRelativeUrl: string): Promise<void> {
+  const sp = getSP();
+  try {
+    await sp.web.getFileByServerRelativePath(serverRelativeUrl).delete();
+  } catch {
+    // Fichier déjà absent, ou droits insuffisants : on laisse l'appelant supprimer quand même
+    // l'enregistrement plutôt que de bloquer sur un fichier orphelin.
+  }
+}

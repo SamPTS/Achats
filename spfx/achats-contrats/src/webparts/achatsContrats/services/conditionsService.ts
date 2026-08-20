@@ -2,7 +2,7 @@ import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, withListRecovery, LISTS, LIBRARIES } from './provisioning';
-import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
+import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl } from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
 import { odataEscape } from './odata';
 import type { ConditionsVersion } from '../model/types';
@@ -194,4 +194,18 @@ export async function archiveConditions(id: string): Promise<void> {
     throw new Error("Impossible d'archiver la version active : activez une autre version au préalable.");
   }
   await list().items.getById(Number(id)).update({ Archive: true, EstActive: false });
+}
+
+/** Suppression définitive (contrairement à archiveConditions, qui ne fait que masquer la
+ * version) : supprime aussi le fichier Excel déposé. Refusée pour la version active, pour la
+ * même raison que l'archivage. */
+export async function deleteConditions(id: string): Promise<void> {
+  await ensureProvisioned();
+  const version = await getConditionsVersion(id);
+  if (!version) throw new Error('Version introuvable.');
+  if (version.estActive) {
+    throw new Error("Impossible de supprimer la version active : activez une autre version au préalable.");
+  }
+  await deleteByServerRelativeUrl(version.cheminStockage);
+  await list().items.getById(Number(id)).delete();
 }

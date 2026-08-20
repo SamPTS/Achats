@@ -36,6 +36,10 @@ export function archiveConditions(id: string): Promise<{ ok: true }> {
   return fetch(`/api/conditions/${id}/archive`, { method: 'POST' }).then((r) => handleJson(r));
 }
 
+export function deleteConditions(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/conditions/${id}`, { method: 'DELETE' }).then((r) => handleJson(r));
+}
+
 export function setConditionsCodeColumn(id: string, colonneCodeSousSegment: string): Promise<ConditionsVersion> {
   return fetch(`/api/conditions/${id}`, {
     method: 'PATCH',
@@ -56,6 +60,10 @@ export function listTemplates(): Promise<Template[]> {
 
 export function getTemplateVersions(groupId: string): Promise<Template[]> {
   return fetch(`/api/templates/group/${groupId}/versions`).then((r) => handleJson(r));
+}
+
+export function deleteTemplate(id: string): Promise<{ ok: true }> {
+  return fetch(`/api/templates/${id}`, { method: 'DELETE' }).then((r) => handleJson(r));
 }
 
 export function uploadTemplate(opts: {
