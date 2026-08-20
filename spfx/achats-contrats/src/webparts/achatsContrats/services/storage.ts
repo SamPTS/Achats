@@ -35,13 +35,29 @@ export function safeFileNamePart(s: string): string {
   return slug(s) || 'x';
 }
 
-/** Dépose un fichier dans la bibliothèque indiquée et retourne son chemin relatif au serveur. */
+/** Dépose un fichier dans la bibliothèque indiquée et retourne son chemin relatif au serveur.
+ *
+ * addUsingPath() peut, comme items.add() (voir conditionsService.ts/templatesService.ts),
+ * renvoyer une réponse vide/incomplète (observé en conditions réelles : ServerRelativeUrl absent
+ * de la réponse) — le champ « cheminStockage » de l'enregistrement se retrouvait alors vide,
+ * cassant silencieusement tout lien de téléchargement vers ce fichier sans qu'aucune erreur ne
+ * soit levée au dépôt (un <a href=""> rouvre simplement la page courante). Si la réponse ne
+ * contient pas ServerRelativeUrl, on relit le fichier qu'on vient de déposer directement dans la
+ * bibliothèque, par son nom (unique par dépôt, horodaté à la minute), plutôt que de stocker une
+ * valeur vide sans avertir personne. */
 export async function uploadToLibrary(libraryTitle: string, fileName: string, content: ArrayBuffer): Promise<string> {
   const sp = getSP();
-  const info = await sp.web.lists.getByTitle(libraryTitle).rootFolder.files.addUsingPath(fileName, content, {
-    Overwrite: false,
-  });
-  return info.ServerRelativeUrl;
+  const files = sp.web.lists.getByTitle(libraryTitle).rootFolder.files;
+  const info = await files.addUsingPath(fileName, content, { Overwrite: false });
+  if (info && info.ServerRelativeUrl) return info.ServerRelativeUrl;
+
+  const reread = (await files.getByUrl(fileName).select('ServerRelativeUrl')()) as { ServerRelativeUrl?: string };
+  if (!reread || !reread.ServerRelativeUrl) {
+    throw new Error(
+      `Le fichier "${fileName}" a été déposé mais son chemin de stockage n'a pas pu être déterminé (réponse SharePoint incomplète).`,
+    );
+  }
+  return reread.ServerRelativeUrl;
 }
 
 /** Télécharge le contenu binaire d'un fichier à partir de son chemin relatif au serveur. */
