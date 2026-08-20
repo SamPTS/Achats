@@ -4,6 +4,7 @@ import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, withListRecovery, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
+import { odataEscape } from './odata';
 import type { ConditionsVersion } from '../model/types';
 
 /** Forme brute d'un élément de la liste ConditionsVersions côté SharePoint. */
@@ -141,8 +142,26 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
   // "Cannot read properties of undefined (reading 'Id')" systématique à chaque dépôt, à tort
   // attribuée à un délai de propagation SharePoint (voir historique de ce fichier) : en réalité
   // iar.data était toujours undefined, quel que soit le nombre de tentatives.
+  // Défense supplémentaire contre une réponse d'ajout vide/incomplète (observé une fois sur une
+  // liste tout juste créée) : recherche par CheminStockage, unique par dépôt (nom horodaté à la
+  // minute), plutôt que planter ou retenter l'ajout au risque de créer un doublon.
+  const newId =
+    iar && typeof iar.Id === 'number'
+      ? iar.Id
+      : await (async () => {
+          const found = (await retryOnce(async () => {
+            const rows = (await list()
+              .items.select('Id')
+              .filter(`CheminStockage eq '${odataEscape(cheminStockage)}'`)
+              .top(1)()) as { Id: number }[];
+            if (rows.length === 0) throw new Error('Version introuvable après création (réponse vide).');
+            return rows[0];
+          })) as { Id: number };
+          return found.Id;
+        })();
+
   const created = (await retryOnce(() =>
-    list().items.getById(iar.Id).select(...SELECT_FIELDS)(),
+    list().items.getById(newId).select(...SELECT_FIELDS)(),
   )) as ConditionsVersionItem;
   return toModel(created);
 }

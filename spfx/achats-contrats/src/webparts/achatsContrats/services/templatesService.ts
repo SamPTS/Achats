@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryOnce, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
@@ -192,6 +192,20 @@ export async function getTemplate(id: string): Promise<Template | undefined> {
   }
 }
 
+/** Retrouve l'Id d'un template tout juste créé quand la réponse de items.add() était vide/incomplète
+ * — voir uploadTemplate. GroupId+Version est unique au sein d'un même groupe de template. */
+async function recoverTemplateId(groupId: string, version: number): Promise<string> {
+  const found = (await retryOnce(async () => {
+    const rows = (await templatesList()
+      .items.select('Id')
+      .filter(`GroupId eq '${odataEscape(groupId)}' and Version eq ${version}`)
+      .top(1)()) as { Id: number }[];
+    if (rows.length === 0) throw new Error('Template introuvable après création (réponse vide).');
+    return rows[0];
+  })) as { Id: number };
+  return String(found.Id);
+}
+
 export async function uploadTemplate(opts: {
   file: File;
   libelle: string;
@@ -216,6 +230,7 @@ export async function uploadTemplate(opts: {
   const storedName = buildStoredFilename('template', libelle, 'docx');
   const cheminStockage = await uploadToLibrary(LIBRARIES.templatesFichiers, storedName, buffer);
 
+  // items.add() renvoie directement l'élément créé (.Id à la racine), jamais {data: {...}}.
   const iar = await templatesList().items.add({
     Title: libelle,
     GroupId: groupId,
@@ -229,10 +244,15 @@ export async function uploadTemplate(opts: {
     DeposePar: opts.deposePar || null,
     Archive: false,
   });
-  // Voir conditionsService.ts : items.add() renvoie directement l'élément créé (.Id à la racine),
-  // jamais {data: {...}} — cette hypothèse de forme incorrecte faisait planter uploadTemplate()
-  // systématiquement à ce point, avant même la création des lignes de mapping ci-dessous.
-  const templateId = String(iar.Id);
+  // Défense contre une réponse d'ajout vide/incomplète (observé une fois sur une liste tout juste
+  // créée) : plutôt que planter avec "Cannot read properties of undefined (reading 'Id')", ou
+  // retenter l'ajout au risque de créer un doublon (l'élément a peut-être bien été créé côté
+  // SharePoint malgré une réponse malformée côté client), on retrouve l'élément par sa combinaison
+  // GroupId+Version, unique au sein d'un même groupe.
+  const templateId =
+    iar && typeof iar.Id === 'number'
+      ? String(iar.Id)
+      : await recoverTemplateId(groupId, version);
 
   await Promise.all(
     variables.map((v) =>
