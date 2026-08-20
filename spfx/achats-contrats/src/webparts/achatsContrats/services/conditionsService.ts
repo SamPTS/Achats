@@ -97,10 +97,26 @@ export async function getActiveConditionsVersion(): Promise<ConditionsVersion | 
   return items[0] ? toModel(items[0]) : undefined;
 }
 
-/** Relit le fichier Excel stocké et retourne les lignes de données (pas de cache, toujours à jour). */
+// Cache en mémoire des lignes déjà lues, par identifiant de version. Une version de conditions
+// est immuable une fois créée (un nouveau dépôt crée toujours une nouvelle version, jamais de
+// modification en place) : mettre son contenu en cache ne peut donc jamais le rendre périmé.
+// Sans ce cache, observé en conditions réelles : chaque recherche de code ET chaque résolution
+// de ligne retéléchargeaient et reparsaient l'intégralité du fichier Excel depuis SharePoint
+// (potentiellement plusieurs centaines de colonnes) — deux fois par génération de contrat, et à
+// nouveau à chaque nouvelle recherche, sans jamais réutiliser un résultat déjà obtenu. Sur un
+// fichier volumineux, l'aller-retour réseau (télécharger le fichier) domine largement le temps
+// de calcul du parsing lui-même.
+const rowsCache = new Map<string, Record<string, string>[]>();
+
+/** Relit le fichier Excel stocké et retourne les lignes de données. Mis en cache par version
+ * (voir rowsCache) — jamais périmé puisqu'une version est immuable une fois créée. */
 export async function readConditionsRows(version: ConditionsVersion): Promise<{ rows: Record<string, string>[] }> {
+  const cached = rowsCache.get(version.id);
+  if (cached) return { rows: cached };
+
   const buffer = await downloadFromServerRelativeUrl(version.cheminStockage);
   const parsed = await parseConditionsFile(buffer);
+  rowsCache.set(version.id, parsed.rows);
   return { rows: parsed.rows };
 }
 
