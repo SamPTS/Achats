@@ -97,7 +97,15 @@ export async function retryUntilValid<T>(fn: () => Promise<T>, isValid: (v: T) =
     }
     if (i < attempts - 1) await delay(1500 * (i + 1));
   }
-  if (last !== undefined) return last;
+  if (last !== undefined) {
+    // Journalisé même si ce n'est pas forcément une erreur (voir commentaire ci-dessus : peut être
+    // un état légitime) — sans ce log, un mapping qui reste vide après toutes les tentatives était
+    // totalement invisible en conditions réelles, impossible à distinguer d'un simple "template
+    // sans variable" depuis l'extérieur.
+    // eslint-disable-next-line no-console
+    console.warn('[achats-contrats] retryUntilValid : aucune tentative jugée valide, dernier résultat retourné tel quel :', last);
+    return last;
+  }
   // eslint-disable-next-line no-console
   console.error('[achats-contrats] retryUntilValid a épuisé toutes ses tentatives :', lastError);
   throw lastError;
