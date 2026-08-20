@@ -6,6 +6,7 @@ import styles from './AchatsContrats.module.scss';
 import type { IAchatsContratsProps } from './IAchatsContratsProps';
 import { getSP } from '../services/spClient';
 import { ensureProvisioned } from '../services/provisioning';
+import { logAndGetMessage } from '../services/errorLog';
 import ConditionsTab from './ConditionsTab';
 import TemplatesTab from './TemplatesTab';
 import GenerateTab from './GenerateTab';
@@ -24,9 +25,9 @@ export default function AchatsContrats(props: IAchatsContratsProps): JSX.Element
     getSP(props.context);
     ensureProvisioned()
       .then(() => setReady(true))
-      .catch((e: Error) =>
+      .catch((e) =>
         setError(
-          `Impossible de préparer les listes SharePoint nécessaires : ${e.message}. ` +
+          `Impossible de préparer les listes SharePoint nécessaires : ${logAndGetMessage(e, 'AchatsContrats.ensureProvisioned')}. ` +
             "Vérifiez que vous disposez des droits de gestion des listes sur ce site (nécessaire uniquement pour l'initialisation).",
         ),
       );

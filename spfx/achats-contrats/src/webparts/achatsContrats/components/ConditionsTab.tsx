@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import * as conditionsService from '../services/conditionsService';
+import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion } from '../model/types';
 
 function fmtDate(iso: string): string {
@@ -27,7 +28,7 @@ export default function ConditionsTab(): JSX.Element {
   }
 
   useEffect(() => {
-    refresh().catch((e: Error) => setError(e.message));
+    refresh().catch((e) => setError(logAndGetMessage(e, 'ConditionsTab.refresh (chargement initial)')));
   }, []);
 
   async function handleFile(file: File): Promise<void> {
@@ -41,7 +42,7 @@ export default function ConditionsTab(): JSX.Element {
       setInfo(`Fichier déposé : ${created.nomFichier} — ${created.nbLignes} lignes, ${created.nbColonnes} colonnes.${warn}`);
       await refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'ConditionsTab.handleFile (dépôt d\'un fichier)'));
     } finally {
       setBusy(false);
     }
@@ -81,7 +82,7 @@ export default function ConditionsTab(): JSX.Element {
             e.preventDefault();
             setDragOver(false);
             const file = e.dataTransfer.files?.[0];
-            if (file) handleFile(file).catch((err: Error) => setError(err.message));
+            if (file) handleFile(file).catch((err) => setError(logAndGetMessage(err, 'ConditionsTab.handleFile (glisser-déposer)')));
           }}
           onClick={() => fileInput.current?.click()}
         >
@@ -93,7 +94,7 @@ export default function ConditionsTab(): JSX.Element {
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) handleFile(file).catch((err: Error) => setError(err.message));
+              if (file) handleFile(file).catch((err) => setError(logAndGetMessage(err, 'ConditionsTab.handleFile (glisser-déposer)')));
               e.target.value = '';
             }}
           />
@@ -162,7 +163,7 @@ function VersionRow({
       await conditionsService.archiveConditions(version.id);
       await onChanged();
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'ConditionsTab.VersionRow.archive'));
     } finally {
       setBusy(false);
     }

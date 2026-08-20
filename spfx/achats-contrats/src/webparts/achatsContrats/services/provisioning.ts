@@ -66,6 +66,12 @@ export async function retryOnce<T>(fn: () => Promise<T>, attempts = 3): Promise<
       if (i < attempts - 1) await delay(1500 * (i + 1));
     }
   }
+  // Journalisé explicitement : une erreur interceptée par notre propre try/catch (React) n'apparaît
+  // jamais comme une exception "Uncaught" dans la console du navigateur — sans ce log, la trace
+  // complète (avec la pile d'appels) n'est visible nulle part, seul le message final ("Cannot read
+  // properties of undefined (reading 'Id')") s'affiche à l'écran, sans indication de sa provenance.
+  // eslint-disable-next-line no-console
+  console.error('[achats-contrats] retryOnce a épuisé toutes ses tentatives :', lastError);
   throw lastError;
 }
 
@@ -92,6 +98,8 @@ export async function retryUntilValid<T>(fn: () => Promise<T>, isValid: (v: T) =
     if (i < attempts - 1) await delay(1500 * (i + 1));
   }
   if (last !== undefined) return last;
+  // eslint-disable-next-line no-console
+  console.error('[achats-contrats] retryUntilValid a épuisé toutes ses tentatives :', lastError);
   throw lastError;
 }
 
@@ -133,7 +141,13 @@ export async function withListRecovery<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (!isListMissingError(e)) throw e;
+    if (!isListMissingError(e)) {
+      // eslint-disable-next-line no-console
+      console.error('[achats-contrats] Erreur non reconnue comme "liste manquante", pas de reprovisionnement :', e);
+      throw e;
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[achats-contrats] Liste manquante détectée, reprovisionnement automatique en cours…', e);
     forgetProvisioning();
     await ensureProvisioned();
     return fn();

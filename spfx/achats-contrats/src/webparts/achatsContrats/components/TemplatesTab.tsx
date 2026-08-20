@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import * as templatesService from '../services/templatesService';
 import * as conditionsService from '../services/conditionsService';
+import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion, Template } from '../model/types';
 
 function fmtDate(iso: string): string {
@@ -33,7 +34,7 @@ export default function TemplatesTab(): JSX.Element {
   }
 
   useEffect(() => {
-    refresh().catch((e: Error) => setError(e.message));
+    refresh().catch((e) => setError(logAndGetMessage(e, 'TemplatesTab.refresh (chargement initial)')));
   }, []);
 
   const activeConditions = conditions.find((c) => c.estActive) ?? null;
@@ -141,7 +142,7 @@ function UploadTemplateForm({ onDone }: { onDone: () => Promise<void> }): JSX.El
       await templatesService.uploadTemplate({ file, libelle, departement, deposePar });
       await onDone();
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'TemplatesTab.UploadTemplateForm.submit'));
     } finally {
       setBusy(false);
     }
@@ -214,7 +215,7 @@ function MappingPanel({
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'TemplatesTab.MappingPanel.downloadBlankMapping'));
     } finally {
       setBusy(false);
     }
@@ -238,7 +239,7 @@ function MappingPanel({
       setInfo('Mapping importé avec succès.');
       await onChanged();
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'TemplatesTab.MappingPanel.importMapping'));
     } finally {
       setBusy(false);
     }

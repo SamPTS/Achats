@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useState } from 'react';
 import * as generateService from '../services/generateService';
 import * as conditionsService from '../services/conditionsService';
+import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../model/types';
 
 export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () => void }): JSX.Element {
@@ -32,7 +33,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       else if (t.length > 0) setTemplateId(t[0].id);
       const active = c.find((x) => x.estActive);
       if (active) setConditionsVersionId(active.id);
-    }, (e: Error) => setError(e.message));
+    }, (e) => setError(logAndGetMessage(e, 'GenerateTab (chargement initial)')));
   }, []);
 
   const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
@@ -55,7 +56,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       setMatches(result);
       if (result.length === 1) await resolveRow(result[0].rowIndex);
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'GenerateTab.runSearch'));
     } finally {
       setBusy(false);
     }
@@ -70,7 +71,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       setValues(v);
       setColonnesManquantes(cm);
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'GenerateTab.resolveRow'));
     } finally {
       setBusy(false);
     }
@@ -99,7 +100,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       URL.revokeObjectURL(url);
       setInfo('Contrat généré et téléchargé.');
     } catch (e) {
-      setError((e as Error).message);
+      setError(logAndGetMessage(e, 'GenerateTab.download'));
     } finally {
       setBusy(false);
     }
