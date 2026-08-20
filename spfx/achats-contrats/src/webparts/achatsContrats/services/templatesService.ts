@@ -229,7 +229,10 @@ export async function uploadTemplate(opts: {
     DeposePar: opts.deposePar || null,
     Archive: false,
   });
-  const templateId = String(iar.data.Id);
+  // Voir conditionsService.ts : items.add() renvoie directement l'élément créé (.Id à la racine),
+  // jamais {data: {...}} — cette hypothèse de forme incorrecte faisait planter uploadTemplate()
+  // systématiquement à ce point, avant même la création des lignes de mapping ci-dessous.
+  const templateId = String(iar.Id);
 
   await Promise.all(
     variables.map((v) =>

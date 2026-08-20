@@ -136,8 +136,13 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
     Archive: false,
   });
 
+  // items.add() renvoie directement l'élément créé (avec .Id à la racine), pas un objet enveloppé
+  // {data: {...}} — cette hypothèse de forme incorrecte (iar.data.Id) provoquait une exception
+  // "Cannot read properties of undefined (reading 'Id')" systématique à chaque dépôt, à tort
+  // attribuée à un délai de propagation SharePoint (voir historique de ce fichier) : en réalité
+  // iar.data était toujours undefined, quel que soit le nombre de tentatives.
   const created = (await retryOnce(() =>
-    list().items.getById(iar.data.Id).select(...SELECT_FIELDS)(),
+    list().items.getById(iar.Id).select(...SELECT_FIELDS)(),
   )) as ConditionsVersionItem;
   return toModel(created);
 }
