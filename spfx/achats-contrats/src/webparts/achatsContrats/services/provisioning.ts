@@ -98,6 +98,49 @@ export async function retryUntilValid<T>(fn: () => Promise<T>, isValid: (v: T) =
 let provisioned: Promise<void> | undefined;
 
 /**
+ * Détecte l'erreur SharePoint "La liste «X» n'existe pas sur le site associé à l'URL «...»" —
+ * observée en conditions réelles alors que les listes avaient bien été créées par le passé sur ce
+ * site (provisionnement mémorisé dans le localStorage du navigateur, donc jamais rejoué). Cause la
+ * plus probable : une liste supprimée après coup (manuellement, ou par une opération de ménage
+ * côté site) sans que le navigateur n'en soit informé. Reconnaît aussi l'équivalent anglais, au
+ * cas où la langue du site diffère.
+ */
+function isListMissingError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /n['’]existe pas sur le site associ/i.test(msg) || /does not exist at site with URL/i.test(msg);
+}
+
+/** Oublie le provisionnement mémorisé (mémoire + localStorage), pour forcer une reprovision complète. */
+function forgetProvisioning(): void {
+  provisioned = undefined;
+  try {
+    window.localStorage.removeItem(storageKey());
+  } catch {
+    // Rien de grave si on ne peut pas l'effacer : ensureProvisioned() relira quand même la même
+    // clé au prochain appel et échouera pareil si la liste manque toujours, sans boucle infinie
+    // puisque withListRecovery ne retente qu'une seule fois.
+  }
+}
+
+/**
+ * Enveloppe une lecture pour la rendre résiliente à une liste supprimée après coup malgré un
+ * provisionnement mémorisé comme déjà fait : si l'erreur SharePoint indique clairement que la
+ * liste n'existe plus, oublie ce provisionnement, le relance en entier, puis retente une seule
+ * fois l'appel d'origine. Ne masque aucune autre erreur (droits insuffisants, réseau, etc.), qui
+ * remonte normalement à l'appelant sans nouvelle tentative.
+ */
+export async function withListRecovery<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!isListMissingError(e)) throw e;
+    forgetProvisioning();
+    await ensureProvisioned();
+    return fn();
+  }
+}
+
+/**
  * Idempotent et mémoïsé pour la durée de vie du web part : à appeler avant tout accès aux
  * données. La mémoïsation en mémoire (`provisioned`) ne couvre que l'onglet de navigateur en
  * cours — sans le repli localStorage ci-dessous, chaque rechargement de page relancerait

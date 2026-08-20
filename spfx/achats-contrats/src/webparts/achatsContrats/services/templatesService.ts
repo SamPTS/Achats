@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryUntilValid, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
@@ -129,19 +129,21 @@ export async function listTemplates(): Promise<Template[]> {
     // créées peuvent être absentes d'une première lecture sans qu'aucune erreur ne soit levée (pas
     // couvert par retryOnce seul) — on revérifie que chaque template a bien au moins autant de
     // lignes de mapping que de variables déclarées avant d'accepter le résultat.
-    retryUntilValid(
-      async () => {
-        const [items, allMappings] = await Promise.all([
-          templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
-          getAllMappingsRaw(),
-        ]);
-        return { items, allMappings };
-      },
-      ({ items, allMappings }) => {
-        const counts = new Map<string, number>();
-        for (const m of allMappings) counts.set(m.TemplateId, (counts.get(m.TemplateId) ?? 0) + 1);
-        return items.every((it) => parseVariables(it.Variables).length <= (counts.get(String(it.Id)) ?? 0));
-      },
+    withListRecovery(() =>
+      retryUntilValid(
+        async () => {
+          const [items, allMappings] = await Promise.all([
+            templatesList().items.select(...TEMPLATE_SELECT).filter('Archive eq 0').top(2000)() as Promise<TemplateItem[]>,
+            getAllMappingsRaw(),
+          ]);
+          return { items, allMappings };
+        },
+        ({ items, allMappings }) => {
+          const counts = new Map<string, number>();
+          for (const m of allMappings) counts.set(m.TemplateId, (counts.get(m.TemplateId) ?? 0) + 1);
+          return items.every((it) => parseVariables(it.Variables).length <= (counts.get(String(it.Id)) ?? 0));
+        },
+      ),
     ),
     getActiveConditionsVersion(),
   ]);
@@ -170,15 +172,17 @@ export async function getTemplate(id: string): Promise<Template | undefined> {
     const [{ item, mappingsRaw }, active] = await Promise.all([
       // Voir listTemplates : même garde contre une lecture réussie mais incomplète juste après le
       // dépôt du template (mapping tout juste créé pas encore visible).
-      retryUntilValid(
-        async () => {
-          const [item, mappingsRaw] = await Promise.all([
-            templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>,
-            getMappingsRaw(id),
-          ]);
-          return { item, mappingsRaw };
-        },
-        ({ item, mappingsRaw }) => parseVariables(item.Variables).length <= mappingsRaw.length,
+      withListRecovery(() =>
+        retryUntilValid(
+          async () => {
+            const [item, mappingsRaw] = await Promise.all([
+              templatesList().items.getById(Number(id)).select(...TEMPLATE_SELECT)() as Promise<TemplateItem>,
+              getMappingsRaw(id),
+            ]);
+            return { item, mappingsRaw };
+          },
+          ({ item, mappingsRaw }) => parseVariables(item.Variables).length <= mappingsRaw.length,
+        ),
       ),
       getActiveConditionsVersion(),
     ]);

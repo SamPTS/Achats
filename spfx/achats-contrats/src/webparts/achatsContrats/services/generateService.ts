@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, LISTS } from './provisioning';
+import { ensureProvisioned, withListRecovery, LISTS } from './provisioning';
 import { getConditionsVersion, readConditionsRows } from './conditionsService';
 import { getTemplate, listTemplates, downloadTemplateFile } from './templatesService';
 import { fillDocxTemplate } from './docx';
@@ -146,9 +146,9 @@ export async function generateContract(params: {
 
 export async function listGenerations(limit = 50): Promise<GenerationLog[]> {
   await ensureProvisioned();
-  const items = (await generationsList()
-    .items.select(...GENERATION_SELECT)
-    .top(limit)()) as GenerationItem[];
+  const items = (await withListRecovery(() =>
+    generationsList().items.select(...GENERATION_SELECT).top(limit)(),
+  )) as GenerationItem[];
   return items
     .map((i) => ({
       id: String(i.Id),

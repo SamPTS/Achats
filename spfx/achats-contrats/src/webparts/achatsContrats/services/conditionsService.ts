@@ -1,7 +1,7 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryOnce, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryOnce, withListRecovery, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl } from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
 import type { ConditionsVersion } from '../model/types';
@@ -70,8 +70,8 @@ function list() {
 /** Liste des versions non archivées, triées par date de dépôt décroissante. */
 export async function listConditions(): Promise<ConditionsVersion[]> {
   await ensureProvisioned();
-  const items = (await retryOnce(() =>
-    list().items.select(...SELECT_FIELDS).filter('Archive eq 0').top(2000)(),
+  const items = (await withListRecovery(() =>
+    retryOnce(() => list().items.select(...SELECT_FIELDS).filter('Archive eq 0').top(2000)()),
   )) as ConditionsVersionItem[];
   return items.map(toModel).sort((a, b) => (a.dateDepot < b.dateDepot ? 1 : -1));
 }
@@ -79,9 +79,9 @@ export async function listConditions(): Promise<ConditionsVersion[]> {
 export async function getConditionsVersion(id: string): Promise<ConditionsVersion | undefined> {
   await ensureProvisioned();
   try {
-    const item = (await list()
-      .items.getById(Number(id))
-      .select(...SELECT_FIELDS)()) as ConditionsVersionItem;
+    const item = (await withListRecovery(() =>
+      list().items.getById(Number(id)).select(...SELECT_FIELDS)(),
+    )) as ConditionsVersionItem;
     return toModel(item);
   } catch {
     return undefined;
@@ -90,8 +90,8 @@ export async function getConditionsVersion(id: string): Promise<ConditionsVersio
 
 export async function getActiveConditionsVersion(): Promise<ConditionsVersion | undefined> {
   await ensureProvisioned();
-  const items = (await retryOnce(() =>
-    list().items.select(...SELECT_FIELDS).filter('EstActive eq 1 and Archive eq 0').top(1)(),
+  const items = (await withListRecovery(() =>
+    retryOnce(() => list().items.select(...SELECT_FIELDS).filter('EstActive eq 1 and Archive eq 0').top(1)()),
   )) as ConditionsVersionItem[];
   return items[0] ? toModel(items[0]) : undefined;
 }
