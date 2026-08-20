@@ -120,6 +120,34 @@
       color: var(--danger);
       border: 1px solid var(--danger);
     }
+    button.icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      font-size: 1rem;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--primary);
+      border: 1px solid var(--border);
+    }
+    button.icon-btn:hover {
+      background: var(--brand-green-tint);
+    }
+    button.icon-btn.danger {
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+    button.icon-btn.danger:hover {
+      background: #fbeceb;
+    }
+    button.icon-btn:disabled {
+      background: transparent;
+      color: #b7c3d1;
+      border-color: var(--border);
+    }
 
     table {
       width: 100%;

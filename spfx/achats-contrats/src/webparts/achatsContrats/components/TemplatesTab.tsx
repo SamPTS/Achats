@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import * as templatesService from '../services/templatesService';
 import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
@@ -109,8 +110,8 @@ export default function TemplatesTab(): JSX.Element {
                     <button className="secondary" onClick={() => setSelected(t)}>
                       Gérer le mapping
                     </button>
-                    <button className="danger" onClick={() => remove(t)}>
-                      Supprimer
+                    <button className="icon-btn danger" title="Supprimer" aria-label="Supprimer" onClick={() => remove(t)}>
+                      <Icon iconName="Delete" />
                     </button>
                   </div>
                 </td>

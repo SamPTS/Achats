@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion } from '../model/types';
@@ -240,8 +241,8 @@ function VersionRow({
         ) : version.colonneCodeSousSegment ? (
           <span>
             {version.colonneCodeSousSegment}{' '}
-            <button className="secondary small" onClick={() => setChoosingCol(true)}>
-              modifier
+            <button className="icon-btn" title="Modifier la colonne" aria-label="Modifier la colonne" onClick={() => setChoosingCol(true)}>
+              <Icon iconName="Edit" />
             </button>
           </span>
         ) : (
@@ -254,11 +255,23 @@ function VersionRow({
       <td>
         {error && <div className="alert error small">{error}</div>}
         <div style={{ display: 'flex', gap: '0.4rem' }}>
-          <button className="danger" disabled={busy || version.estActive} onClick={archive}>
-            Archiver
+          <button
+            className="icon-btn danger"
+            title="Archiver"
+            aria-label="Archiver"
+            disabled={busy || version.estActive}
+            onClick={archive}
+          >
+            <Icon iconName="Archive" />
           </button>
-          <button className="danger" disabled={busy || version.estActive} onClick={remove}>
-            Supprimer
+          <button
+            className="icon-btn danger"
+            title="Supprimer"
+            aria-label="Supprimer"
+            disabled={busy || version.estActive}
+            onClick={remove}
+          >
+            <Icon iconName="Delete" />
           </button>
         </div>
       </td>

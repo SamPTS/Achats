@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useState } from 'react';
 import { Pivot, PivotItem } from '@fluentui/react/lib/Pivot';
 import { Spinner, SpinnerSize } from '@fluentui/react/lib/Spinner';
+import { initializeIcons } from '@fluentui/react/lib/Icons';
 import styles from './AchatsContrats.module.scss';
 import type { IAchatsContratsProps } from './IAchatsContratsProps';
 import { getSP } from '../services/spClient';
@@ -10,6 +11,15 @@ import { logAndGetMessage } from '../services/errorLog';
 import ConditionsTab from './ConditionsTab';
 import TemplatesTab from './TemplatesTab';
 import GenerateTab from './GenerateTab';
+
+// Enregistre la police d'icônes Fluent UI une seule fois au chargement du bundle (pas dans le
+// composant, pour ne pas la répéter à chaque rendu). Nécessaire pour que les boutons à
+// pictogramme (Edit/Archive/Delete) affichent réellement un glyphe : sans cet appel, l'icône
+// reste invisible (aucune erreur, juste un bouton vide) tant qu'aucune autre partie de la page
+// n'a déjà enregistré ce jeu d'icônes — observé dans une simulation locale sans le chrome
+// SharePoint habituel. Un double enregistrement (si SharePoint l'a déjà fait) ne produit qu'un
+// avertissement console bénin ("icon was re-registered"), jamais une erreur.
+initializeIcons();
 
 type TabKey = 'conditions' | 'templates' | 'generer';
 
