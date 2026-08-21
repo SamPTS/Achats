@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
+import { Icon } from '@fluentui/react/lib/Icon';
 import * as generateService from '../services/generateService';
 import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
@@ -16,10 +17,10 @@ interface BatchItem {
   expanded?: boolean;
 }
 
-function parseCodes(text: string): string[] {
+function parseCodes(lines: string[]): string[] {
   const seen = new Set<string>();
   const codes: string[] = [];
-  for (const line of text.split('\n')) {
+  for (const line of lines) {
     const code = line.trim();
     if (!code || seen.has(code)) continue;
     seen.add(code);
@@ -47,7 +48,9 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
 
   // --- Mode "plusieurs contrats à la fois" ---
   const [batchMode, setBatchMode] = useState(false);
-  const [batchCodesText, setBatchCodesText] = useState('');
+  // Une ligne de saisie par code, plutôt qu'une zone de texte multi-lignes : on démarre avec une
+  // seule ligne et "Ajouter une ligne" en ajoute une nouvelle vide à la suite.
+  const [batchCodeLines, setBatchCodeLines] = useState<string[]>(['']);
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
 
@@ -139,10 +142,22 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
 
   // --- Mode lot ---
 
+  function updateBatchCodeLine(index: number, value: string): void {
+    setBatchCodeLines((cur) => cur.map((c, i) => (i === index ? value : c)));
+  }
+
+  function addBatchCodeLine(): void {
+    setBatchCodeLines((cur) => [...cur, '']);
+  }
+
+  function removeBatchCodeLine(index: number): void {
+    setBatchCodeLines((cur) => (cur.length <= 1 ? [''] : cur.filter((_, i) => i !== index)));
+  }
+
   async function runBatchSearch(): Promise<void> {
     setError(null);
     setInfo(null);
-    const codes = parseCodes(batchCodesText);
+    const codes = parseCodes(batchCodeLines);
     if (!canSearch || codes.length === 0) return;
     setBatchBusy(true);
     try {
@@ -312,7 +327,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
                 setBatchMode(e.target.checked);
                 resetSearch();
                 setCode('');
-                setBatchCodesText('');
+                setBatchCodeLines(['']);
               }}
             />
             Générer plusieurs contrats à la fois
@@ -336,20 +351,40 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
             </button>
           </div>
         ) : (
-          <div className="form-row">
-            <div style={{ flex: 1 }}>
-              <label>Codes sous-segment (un par ligne)</label>
-              <textarea
-                value={batchCodesText}
-                onChange={(e) => setBatchCodesText(e.target.value)}
-                rows={5}
-                placeholder={'ex :\nSS001\nSS002\nSS003'}
-                style={{ width: '100%', fontFamily: 'inherit' }}
-              />
+          <div className="mt1">
+            <label>Codes sous-segment</label>
+            {batchCodeLines.map((line, i) => (
+              <div key={i} className="form-row" style={{ marginTop: i === 0 ? 0 : '0.4rem', alignItems: 'center' }}>
+                <input
+                  type="search"
+                  value={line}
+                  onChange={(e) => updateBatchCodeLine(i, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    if (i === batchCodeLines.length - 1) addBatchCodeLine();
+                  }}
+                  placeholder="ex : SS001"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="icon-btn danger"
+                  title="Retirer cette ligne"
+                  disabled={batchCodeLines.length === 1 && !line}
+                  onClick={() => removeBatchCodeLine(i)}
+                >
+                  <Icon iconName="Delete" />
+                </button>
+              </div>
+            ))}
+            <div className="form-row mt1">
+              <button type="button" className="secondary" onClick={addBatchCodeLine}>
+                <Icon iconName="Add" /> Ajouter une ligne
+              </button>
+              <button disabled={batchBusy || !canSearch || parseCodes(batchCodeLines).length === 0} onClick={runBatchSearch}>
+                {batchBusy ? 'Recherche…' : 'Rechercher tout'}
+              </button>
             </div>
-            <button disabled={batchBusy || !canSearch || parseCodes(batchCodesText).length === 0} onClick={runBatchSearch}>
-              {batchBusy ? 'Recherche…' : 'Rechercher tout'}
-            </button>
           </div>
         )}
 
