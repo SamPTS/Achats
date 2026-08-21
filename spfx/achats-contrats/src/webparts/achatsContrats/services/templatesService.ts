@@ -2,7 +2,7 @@ import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
-import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl } from './storage';
+import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl, getFileModified } from './storage';
 import { extractVariablesFromDocx } from './docx';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
 import { getActiveConditionsVersion, getConditionsVersion } from './conditionsService';
@@ -21,6 +21,7 @@ interface TemplateItem {
   Variables: string; // JSON.stringify(string[])
   DeposePar: string | null;
   Archive: boolean;
+  FichierModifieLe: string | null;
 }
 
 interface MappingItem {
@@ -43,6 +44,7 @@ const TEMPLATE_SELECT = [
   'Variables',
   'DeposePar',
   'Archive',
+  'FichierModifieLe',
 ];
 const MAPPING_SELECT = ['Id', 'TemplateId', 'Variable', 'ColonneCorrespondante', 'Statut'];
 
@@ -166,6 +168,15 @@ export async function listTemplates(): Promise<Template[]> {
     .map((it) => toModelSync(it, mappingsByTemplate.get(String(it.Id)) ?? [], colonnesRef));
 }
 
+// Cache en mémoire du contenu déjà téléchargé, par identifiant de template (cette version précise
+// d'un template est immuable une fois déposée — sauf édition directe dans la bibliothèque, voir
+// resyncTemplateIfFileChanged juste après, qui invalide l'entrée correspondante dans ce cas).
+// Évite de retélécharger le même .docx à chaque contrat généré lors d'une génération en lot
+// (plusieurs codes sur le même template) — voir conditionsService.ts (rowsCache) pour le même
+// principe côté fichier de conditions. Déclaré avant getTemplate/resyncTemplateIfFileChanged, qui
+// le référencent, pour rester lisible dans l'ordre d'exécution.
+const templateFileCache = new Map<string, ArrayBuffer>();
+
 export async function getTemplate(id: string): Promise<Template | undefined> {
   await ensureProvisioned();
   try {
@@ -186,9 +197,64 @@ export async function getTemplate(id: string): Promise<Template | undefined> {
       ),
       getActiveConditionsVersion(),
     ]);
-    return toModelSync(item, mappingsRaw, active ? active.colonnes : null);
+    const resynced = await resyncTemplateIfFileChanged(item, id);
+    // Le recalcul (s'il a eu lieu) a pu ajouter/retirer des lignes de mapping : on relit dans ce
+    // cas seulement, plutôt que de garder mappingsRaw potentiellement périmé.
+    const finalMappingsRaw = resynced === item ? mappingsRaw : await getMappingsRaw(id);
+    return toModelSync(resynced, finalMappingsRaw, active ? active.colonnes : null);
   } catch {
     return undefined;
+  }
+}
+
+/** Équivalent, pour un template, de resyncIfFileChanged dans conditionsService.ts : détecte une
+ * édition du .docx faite directement dans la bibliothèque de documents et recalcule les variables
+ * détectées à partir du contenu actuel. Les lignes de mapping des variables toujours présentes
+ * sont conservées telles quelles (statut et colonne correspondante) ; celles des variables
+ * disparues sont supprimées ; une ligne "manquante" est créée pour chaque variable nouvellement
+ * apparue dans le document. N'échoue jamais l'appelant : en cas d'erreur, l'élément d'origine
+ * (potentiellement périmé) est retourné tel quel. */
+async function resyncTemplateIfFileChanged(item: TemplateItem, templateId: string): Promise<TemplateItem> {
+  const currentModified = await getFileModified(item.CheminStockage);
+  if (!currentModified || currentModified === item.FichierModifieLe) return item;
+  try {
+    const buffer = await downloadFromServerRelativeUrl(item.CheminStockage);
+    const variables = await extractVariablesFromDocx(buffer);
+    const existingVariables = parseVariables(item.Variables);
+    const added = variables.filter((v) => !existingVariables.includes(v));
+    const removed = existingVariables.filter((v) => !variables.includes(v));
+
+    if (added.length > 0 || removed.length > 0) {
+      const mappingsRaw = await getMappingsRaw(templateId);
+      await Promise.all([
+        ...added.map((v) =>
+          mappingsList().items.add({
+            Title: v,
+            TemplateId: templateId,
+            Variable: v,
+            ColonneCorrespondante: null,
+            Statut: 'manquante' as MappingStatut,
+          }),
+        ),
+        ...removed.map((v) => {
+          const row = mappingsRaw.find((m) => m.Variable === v);
+          return row ? mappingsList().items.getById(row.Id).delete() : Promise.resolve();
+        }),
+      ]);
+    }
+
+    const patch = { Variables: JSON.stringify(variables), FichierModifieLe: currentModified };
+    await templatesList().items.getById(item.Id).update(patch);
+    templateFileCache.delete(templateId);
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[achats-contrats] Template modifié directement dans la bibliothèque (hors dépôt via l'application) : variables recalculées pour "${item.Libelle}" (v${item.Version}).`,
+    );
+    return { ...item, ...patch };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[achats-contrats] Échec de la resynchronisation automatique des variables du template :', e);
+    return item;
   }
 }
 
@@ -229,6 +295,9 @@ export async function uploadTemplate(opts: {
 
   const storedName = buildStoredFilename('template', libelle, 'docx');
   const cheminStockage = await uploadToLibrary(LIBRARIES.templatesFichiers, storedName, buffer);
+  // Référence de départ pour la détection de modification directe dans la bibliothèque — voir
+  // resyncTemplateIfFileChanged.
+  const fichierModifieLe = await getFileModified(cheminStockage);
 
   // items.add() renvoie directement l'élément créé (.Id à la racine), jamais {data: {...}}.
   const iar = await templatesList().items.add({
@@ -243,6 +312,7 @@ export async function uploadTemplate(opts: {
     Variables: JSON.stringify(variables),
     DeposePar: opts.deposePar || null,
     Archive: false,
+    FichierModifieLe: fichierModifieLe,
   });
   // Défense contre une réponse d'ajout vide/incomplète (observé une fois sur une liste tout juste
   // créée) : plutôt que planter avec "Cannot read properties of undefined (reading 'Id')", ou
@@ -270,12 +340,6 @@ export async function uploadTemplate(opts: {
   if (!created) throw new Error('Le template déposé est introuvable après création.');
   return created;
 }
-
-// Cache en mémoire du contenu déjà téléchargé, par identifiant de template (cette version précise
-// d'un template est immuable une fois déposée). Évite de retélécharger le même .docx à chaque
-// contrat généré lors d'une génération en lot (plusieurs codes sur le même template) — voir
-// conditionsService.ts (rowsCache) pour le même principe côté fichier de conditions.
-const templateFileCache = new Map<string, ArrayBuffer>();
 
 export async function downloadTemplateFile(template: Template): Promise<ArrayBuffer> {
   const cached = templateFileCache.get(template.id);

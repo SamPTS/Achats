@@ -2,7 +2,7 @@ import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, withListRecovery, LISTS, LIBRARIES } from './provisioning';
-import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl } from './storage';
+import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl, getFileModified } from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
 import { odataEscape } from './odata';
 import type { ConditionsVersion } from '../model/types';
@@ -22,6 +22,7 @@ interface ConditionsVersionItem {
   NbColonnes: number;
   DoublonsDetectes: number;
   Archive: boolean;
+  FichierModifieLe: string | null;
 }
 
 const SELECT_FIELDS = [
@@ -38,6 +39,7 @@ const SELECT_FIELDS = [
   'NbColonnes',
   'DoublonsDetectes',
   'Archive',
+  'FichierModifieLe',
 ];
 
 function toModel(item: ConditionsVersionItem): ConditionsVersion {
@@ -77,15 +79,67 @@ export async function listConditions(): Promise<ConditionsVersion[]> {
   return items.map(toModel).sort((a, b) => (a.dateDepot < b.dateDepot ? 1 : -1));
 }
 
+// Cache en mémoire des lignes déjà lues, par identifiant de version (voir readConditionsRows plus
+// bas). Déclaré avant resyncIfFileChanged, qui l'invalide, pour rester lisible dans l'ordre
+// d'exécution.
+const rowsCache = new Map<string, Record<string, string>[]>();
+
 export async function getConditionsVersion(id: string): Promise<ConditionsVersion | undefined> {
   await ensureProvisioned();
   try {
     const item = (await withListRecovery(() =>
       list().items.getById(Number(id)).select(...SELECT_FIELDS)(),
     )) as ConditionsVersionItem;
-    return toModel(item);
+    return toModel(await resyncIfFileChanged(item));
   } catch {
     return undefined;
+  }
+}
+
+/** Détecte une édition du fichier Excel faite directement dans la bibliothèque de documents
+ * (hors dépôt via l'application) en comparant sa date de modification actuelle à celle enregistrée
+ * lors du dernier calcul des métadonnées (Colonnes, NbLignes, ...). Si elle diffère, recalcule ces
+ * métadonnées à partir du contenu actuel du fichier et les persiste, plutôt que de continuer à
+ * afficher des colonnes/statistiques qui ne correspondent plus au fichier réel — voir la discussion
+ * avec l'utilisateur : héberger les fichiers dans une bibliothèque SharePoint permet une édition
+ * directe, que l'application ne peut pas empêcher, seulement détecter et rattraper. N'échoue jamais
+ * l'appelant si la resynchronisation elle-même échoue (droits insuffisants, fichier verrouillé...) :
+ * dans ce cas, l'élément d'origine (potentiellement périmé) est retourné tel quel plutôt que de
+ * bloquer toute lecture. */
+async function resyncIfFileChanged(item: ConditionsVersionItem): Promise<ConditionsVersionItem> {
+  const currentModified = await getFileModified(item.CheminStockage);
+  if (!currentModified || currentModified === item.FichierModifieLe) return item;
+  try {
+    const buffer = await downloadFromServerRelativeUrl(item.CheminStockage);
+    const parsed = await parseConditionsFile(buffer);
+    const doublons = parsed.colonneCodeCandidate ? findDuplicateCodes(parsed.rows, parsed.colonneCodeCandidate) : 0;
+    // La colonne de code sous-segment choisie (manuellement ou automatiquement) est conservée si
+    // elle existe toujours dans le fichier modifié ; sinon on retombe sur la détection automatique
+    // faite sur le contenu actuel (peut-être vide, si aucune colonne candidate n'est reconnue).
+    const colonneCodeSousSegment =
+      item.ColonneCodeSousSegment && parsed.colonnes.includes(item.ColonneCodeSousSegment)
+        ? item.ColonneCodeSousSegment
+        : parsed.colonneCodeCandidate;
+    const patch = {
+      Colonnes: JSON.stringify(parsed.colonnes),
+      ColonneCodeSousSegment: colonneCodeSousSegment,
+      NbLignes: parsed.rows.length,
+      NbLignesVides: parsed.nbLignesVides,
+      NbColonnes: parsed.colonnes.length,
+      DoublonsDetectes: doublons,
+      FichierModifieLe: currentModified,
+    };
+    await list().items.getById(item.Id).update(patch);
+    rowsCache.delete(String(item.Id));
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[achats-contrats] Fichier de conditions modifié directement dans la bibliothèque (hors dépôt via l'application) : métadonnées recalculées pour "${item.NomFichier}".`,
+    );
+    return { ...item, ...patch };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[achats-contrats] Échec de la resynchronisation automatique des métadonnées de conditions :', e);
+    return item;
   }
 }
 
@@ -97,19 +151,17 @@ export async function getActiveConditionsVersion(): Promise<ConditionsVersion | 
   return items[0] ? toModel(items[0]) : undefined;
 }
 
-// Cache en mémoire des lignes déjà lues, par identifiant de version. Une version de conditions
-// est immuable une fois créée (un nouveau dépôt crée toujours une nouvelle version, jamais de
-// modification en place) : mettre son contenu en cache ne peut donc jamais le rendre périmé.
-// Sans ce cache, observé en conditions réelles : chaque recherche de code ET chaque résolution
-// de ligne retéléchargeaient et reparsaient l'intégralité du fichier Excel depuis SharePoint
-// (potentiellement plusieurs centaines de colonnes) — deux fois par génération de contrat, et à
-// nouveau à chaque nouvelle recherche, sans jamais réutiliser un résultat déjà obtenu. Sur un
-// fichier volumineux, l'aller-retour réseau (télécharger le fichier) domine largement le temps
-// de calcul du parsing lui-même.
-const rowsCache = new Map<string, Record<string, string>[]>();
-
-/** Relit le fichier Excel stocké et retourne les lignes de données. Mis en cache par version
- * (voir rowsCache) — jamais périmé puisqu'une version est immuable une fois créée. */
+/** Relit le fichier Excel stocké et retourne les lignes de données. Mis en cache par version (voir
+ * rowsCache) — une version de conditions est normalement immuable une fois créée (un nouveau
+ * dépôt crée toujours une nouvelle version, jamais de modification en place), sauf édition directe
+ * du fichier dans la bibliothèque : dans ce cas resyncIfFileChanged (déclenché par un appel
+ * préalable à getConditionsVersion) invalide l'entrée correspondante avant qu'elle ne soit relue
+ * ici. Sans ce cache, observé en conditions réelles : chaque recherche de code ET chaque résolution
+ * de ligne retéléchargeaient et reparsaient l'intégralité du fichier Excel depuis SharePoint
+ * (potentiellement plusieurs centaines de colonnes) — deux fois par génération de contrat, et à
+ * nouveau à chaque nouvelle recherche, sans jamais réutiliser un résultat déjà obtenu. Sur un
+ * fichier volumineux, l'aller-retour réseau (télécharger le fichier) domine largement le temps de
+ * calcul du parsing lui-même. */
 export async function readConditionsRows(version: ConditionsVersion): Promise<{ rows: Record<string, string>[] }> {
   const cached = rowsCache.get(version.id);
   if (cached) return { rows: cached };
@@ -132,6 +184,10 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
 
   const storedName = buildStoredFilename('conditions', file.name.replace(/\.xlsx$/i, ''), 'xlsx');
   const cheminStockage = await uploadToLibrary(LIBRARIES.conditionsFichiers, storedName, buffer);
+  // Référence de départ pour la détection de modification directe dans la bibliothèque (voir
+  // resyncIfFileChanged) — null si indisponible (jamais bloquant, juste une resynchronisation
+  // possible dès la prochaine lecture au lieu d'être différée à la modification suivante).
+  const fichierModifieLe = await getFileModified(cheminStockage);
 
   // Première version jamais déposée (aucune version non archivée) : activée automatiquement.
   const existing = (await list().items.select('Id').filter('Archive eq 0').top(1)()) as unknown[];
@@ -151,6 +207,7 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
     NbColonnes: parsed.colonnes.length,
     DoublonsDetectes: doublons,
     Archive: false,
+    FichierModifieLe: fichierModifieLe,
   });
 
   // items.add() renvoie directement l'élément créé (avec .Id à la racine), pas un objet enveloppé

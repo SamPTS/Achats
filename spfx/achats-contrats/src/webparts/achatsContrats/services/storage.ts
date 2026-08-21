@@ -66,6 +66,23 @@ export async function downloadFromServerRelativeUrl(serverRelativeUrl: string): 
   return sp.web.getFileByServerRelativePath(serverRelativeUrl).getBuffer();
 }
 
+/** Date de dernière modification (horodatage ISO SharePoint) d'un fichier, utilisée pour détecter
+ * une édition faite directement dans la bibliothèque (hors dépôt via l'application) — voir
+ * resyncIfFileChanged dans conditionsService.ts/templatesService.ts. Retourne null plutôt que de
+ * faire échouer l'appelant si le fichier a disparu ou si les droits manquent : dans ce cas, la
+ * détection de changement est simplement sautée, jamais bloquante. */
+export async function getFileModified(serverRelativeUrl: string): Promise<string | null> {
+  try {
+    const sp = getSP();
+    const info = (await sp.web.getFileByServerRelativePath(serverRelativeUrl).select('TimeLastModified')()) as {
+      TimeLastModified?: string;
+    };
+    return info?.TimeLastModified ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Supprime définitivement un fichier à partir de son chemin relatif au serveur. N'échoue pas si
  * le fichier est déjà absent (cohérent avec fs.unlinkSync + existsSync côté standalone : un
  * enregistrement dont le fichier a disparu ne doit pas empêcher sa suppression). */

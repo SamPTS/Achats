@@ -233,6 +233,11 @@ async function doProvision(): Promise<void> {
     await ensureField(() => ler.list.fields.addNumber('NbColonnes'));
     await ensureField(() => ler.list.fields.addNumber('DoublonsDetectes'));
     await ensureField(() => ler.list.fields.addBoolean('Archive'));
+    // Horodatage de dernière modification du fichier Excel au moment où l'application a calculé
+    // les champs ci-dessus (Colonnes, NbLignes, ...) — comparé à la date de modification réelle
+    // du fichier à chaque lecture pour détecter une édition faite directement dans la
+    // bibliothèque, hors dépôt via l'application (voir resyncIfFileChanged, conditionsService.ts).
+    await ensureField(() => ler.list.fields.addText('FichierModifieLe', { MaxLength: 60 }));
   }
 
   // --- TemplatesContrats ---
@@ -248,6 +253,9 @@ async function doProvision(): Promise<void> {
     await ensureField(() => ler.list.fields.addMultilineText('Variables', { NumberOfLines: 10, RichText: false }));
     await ensureField(() => ler.list.fields.addText('DeposePar', { MaxLength: 255 }));
     await ensureField(() => ler.list.fields.addBoolean('Archive'));
+    // Voir le champ homonyme sur ConditionsVersions : détecte une édition du .docx faite
+    // directement dans la bibliothèque, pour recalculer automatiquement les variables détectées.
+    await ensureField(() => ler.list.fields.addText('FichierModifieLe', { MaxLength: 60 }));
   }
 
   // --- MappingsTemplate ---
