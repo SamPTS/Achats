@@ -140,10 +140,27 @@ router.post('/download', async (req, res) => {
     const template = templatesTable.getById(templateId);
     if (!template) return res.status(404).json({ error: 'Template introuvable.' });
 
+    // Le sélecteur de template est désactivé côté client pour un mapping incomplet (voir
+    // GET /templates, mappingComplet), mais rien n'empêchait un appel direct à cette route avec un
+    // templateId dont le mapping est incomplet — générant alors un contrat avec des variables non
+    // substituées ({{Variable}} laissé tel quel dans le document). Revérifié ici côté serveur,
+    // seule protection qu'un appelant ne peut pas contourner en modifiant le client.
+    if (!isMappingComplete(templateId)) {
+      return res.status(400).json({ error: 'Le mapping de ce template est incomplet : impossible de générer un contrat avec.' });
+    }
+
     const filePath = path.join(DIR_TEMPLATES, template.cheminStockage);
     if (!fs.existsSync(filePath)) return res.status(410).json({ error: 'Fichier template manquant sur le disque.' });
 
-    const buffer = fs.readFileSync(filePath);
+    let buffer: Buffer;
+    try {
+      buffer = fs.readFileSync(filePath);
+    } catch {
+      // Le fichier existe (fs.existsSync a réussi juste avant) mais est devenu inaccessible entre
+      // les deux appels (verrouillé par un antivirus, droits NTFS...) : l'exception native Node
+      // contient le chemin disque absolu en clair, jamais renvoyé tel quel au client.
+      return res.status(500).json({ error: 'Fichier temporairement inaccessible, réessayez.' });
+    }
     const filled = await fillDocxTemplate(buffer, values);
 
     generationsTable.insert({

@@ -74,6 +74,9 @@ export default function ConditionsTab(): JSX.Element {
         </div>
         <div
           className={`dropzone${dragOver ? ' dragover' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label="Déposer ou sélectionner un fichier .xlsx de conditions commerciales"
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);
@@ -86,6 +89,14 @@ export default function ConditionsTab(): JSX.Element {
             if (file) handleFile(file).catch((err) => setError(logAndGetMessage(err, 'ConditionsTab.handleFile (glisser-déposer)')));
           }}
           onClick={() => fileInput.current?.click()}
+          onKeyDown={(e) => {
+            // Zone rendue accessible au clavier (Entrée/Espace) : un simple <div onClick> ne peut
+            // pas être activé sans souris, alors que c'est le principal point d'entrée de cet onglet.
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileInput.current?.click();
+            }
+          }}
         >
           {busy ? 'Dépôt en cours…' : 'Glissez-déposez un fichier .xlsx ici, ou cliquez pour le sélectionner'}
           <input
@@ -148,9 +159,12 @@ function VersionRow({
 
   async function activate(): Promise<void> {
     setBusy(true);
+    setError(null);
     try {
       await conditionsService.activateConditions(version.id);
       await onChanged();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'ConditionsTab.VersionRow.activate'));
     } finally {
       setBusy(false);
     }
@@ -172,10 +186,13 @@ function VersionRow({
 
   async function saveCol(): Promise<void> {
     setBusy(true);
+    setError(null);
     try {
       await conditionsService.setConditionsCodeColumn(version.id, col);
       setChoosingCol(false);
       await onChanged();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'ConditionsTab.VersionRow.saveCol'));
     } finally {
       setBusy(false);
     }

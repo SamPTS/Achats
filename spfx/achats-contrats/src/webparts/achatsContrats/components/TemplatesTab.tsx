@@ -269,16 +269,26 @@ function MappingPanel({
   }
 
   async function markFree(variable: string): Promise<void> {
-    await templatesService.setMappingLine(template.id, variable, { statut: 'libre', colonneCorrespondante: null });
-    await onChanged();
+    setError(null);
+    try {
+      await templatesService.setMappingLine(template.id, variable, { statut: 'libre', colonneCorrespondante: null });
+      await onChanged();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'TemplatesTab.MappingPanel.markFree'));
+    }
   }
 
   async function assignColumn(variable: string, colonne: string): Promise<void> {
-    await templatesService.setMappingLine(template.id, variable, {
-      statut: colonne ? 'mappee' : 'manquante',
-      colonneCorrespondante: colonne || null,
-    });
-    await onChanged();
+    setError(null);
+    try {
+      await templatesService.setMappingLine(template.id, variable, {
+        statut: colonne ? 'mappee' : 'manquante',
+        colonneCorrespondante: colonne || null,
+      });
+      await onChanged();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'TemplatesTab.MappingPanel.assignColumn'));
+    }
   }
 
   return (

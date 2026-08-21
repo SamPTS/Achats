@@ -5,6 +5,7 @@ import { getSP } from './spClient';
 import { ensureProvisioned, withListRecovery, LISTS } from './provisioning';
 import { getConditionsVersion, readConditionsRows } from './conditionsService';
 import { getTemplate, listTemplates, downloadTemplateFile } from './templatesService';
+import type { ConditionsVersion, Template } from '../model/types';
 import { fillDocxTemplate } from './docx';
 import { safeFileNamePart, timestampTag } from './storage';
 import type { GenerateTemplateOption, GenerationLog, SearchMatch } from '../model/types';
@@ -123,7 +124,19 @@ export async function generateContract(params: {
   const template = await getTemplate(params.templateId);
   if (!template) throw new Error('Template introuvable.');
   const version = await getConditionsVersion(params.conditionsVersionId);
+  return generateContractResolved(template, version, params);
+}
 
+/** Cœur de generateContract, une fois template/version déjà résolus — voir
+ * generateContractsBatch, qui les résout une seule fois pour tout un lot plutôt qu'à chaque
+ * contrat (ces deux lectures, chacune suivie d'un getMappingsRaw/getActiveConditionsVersion en
+ * interne, étaient sinon répétées identiquement pour chaque code du lot alors que templateId et
+ * conditionsVersionId sont les mêmes pour tout le lot). */
+async function generateContractResolved(
+  template: Template,
+  version: ConditionsVersion | undefined,
+  params: { templateId: string; conditionsVersionId: string; codeSousSegment: string; values: Record<string, string>; traitePar: string },
+): Promise<GenerateContractResult> {
   const buffer = await downloadTemplateFile(template);
   const filled = await fillDocxTemplate(buffer, params.values);
 
@@ -156,17 +169,43 @@ export interface GenerateBatchResult {
  * génération en lot) et les regroupe dans une seule archive ZIP à télécharger — plutôt que
  * déclencher N téléchargements séparés, souvent bloqués par le navigateur au-delà de quelques-uns
  * d'un coup. Le fichier de conditions et le template sont partagés par tout le lot : leur mise en
- * cache (readConditionsRows, downloadTemplateFile) évite de les retélécharger à chaque contrat. */
+ * cache (readConditionsRows, downloadTemplateFile) évite de les retélécharger à chaque contrat.
+ *
+ * template/version (getTemplate/getConditionsVersion, chacun suivi en interne d'un
+ * getMappingsRaw/getActiveConditionsVersion) ne sont résolus qu'une seule fois par paire
+ * (templateId, conditionsVersionId) présente dans le lot — en pratique une seule paire, tout le
+ * lot partageant le même template/fichier sélectionnés dans l'écran de génération — plutôt qu'à
+ * chaque contrat : sans ça, un lot de N codes refaisait ces mêmes lectures N fois de suite.
+ *
+ * onProgress (optionnel) est appelé après chaque contrat traité (réussi ou en échec), pour
+ * permettre à l'appelant d'afficher une progression — sans lui, l'écran ne peut refléter l'avancée
+ * qu'une fois tout le lot terminé, ce qui donne l'impression que l'application est figée sur un
+ * lot volumineux avec une latence réseau non négligeable. */
 export async function generateContractsBatch(
   items: { templateId: string; conditionsVersionId: string; codeSousSegment: string; values: Record<string, string>; traitePar: string }[],
+  onProgress?: (done: number, total: number) => void,
 ): Promise<GenerateBatchResult> {
   const zip = new JSZip();
   const erreurs: { codeSousSegment: string; message: string }[] = [];
   const usedNames = new Set<string>();
+  const resolved = new Map<string, Promise<[Template | undefined, ConditionsVersion | undefined]>>();
 
+  function resolveOnce(templateId: string, conditionsVersionId: string): Promise<[Template | undefined, ConditionsVersion | undefined]> {
+    const key = `${templateId}::${conditionsVersionId}`;
+    let promise = resolved.get(key);
+    if (!promise) {
+      promise = Promise.all([getTemplate(templateId), getConditionsVersion(conditionsVersionId)]);
+      resolved.set(key, promise);
+    }
+    return promise;
+  }
+
+  let done = 0;
   for (const item of items) {
     try {
-      const { blob, filename } = await generateContract(item);
+      const [template, version] = await resolveOnce(item.templateId, item.conditionsVersionId);
+      if (!template) throw new Error('Template introuvable.');
+      const { blob, filename } = await generateContractResolved(template, version, item);
       // Deux codes différents ne devraient jamais produire le même nom de fichier (le code en
       // fait partie), mais on se protège malgré tout d'une collision plutôt que d'écraser
       // silencieusement une entrée du zip par une autre.
@@ -179,6 +218,9 @@ export async function generateContractsBatch(
       zip.file(finalName, await blob.arrayBuffer());
     } catch (e) {
       erreurs.push({ codeSousSegment: item.codeSousSegment, message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      done++;
+      onProgress?.(done, items.length);
     }
   }
 

@@ -10,6 +10,14 @@ import templatesRouter from './routes/templates';
 import generateRouter from './routes/generate';
 import { getAppDir } from './runtimePaths';
 
+// Express capture process.env.NODE_ENV au moment de express() (app.set('env', ...)) : sans cette
+// ligne, exécuter l'exécutable packagé sans définir NODE_ENV fait tourner Express en mode
+// développement par défaut, où son handler d'erreur intégré renvoie la stack trace complète (avec
+// les chemins disque absolus) dans la réponse HTTP pour toute exception non interceptée — voir le
+// middleware d'erreur ci-dessous, qui la remplace de toute façon, mais cette ligne protège aussi
+// contre toute exception survenant avant que ce middleware ne soit atteint.
+if (!process.env.NODE_ENV) process.env.NODE_ENV = 'production';
+
 const app = express();
 // Pas de middleware CORS : le frontend est toujours servi depuis la même origine que l'API
 // (même port en production ; en développement, le proxy Vite fait que le navigateur ne voit
@@ -42,6 +50,20 @@ const clientDist = clientDistCandidates.find((p) => fs.existsSync(p));
 if (clientDist) {
   app.use(express.static(clientDist));
 }
+
+// Middleware d'erreur final : toute exception qui échappe aux try/catch des routes (ex. une
+// erreur multer sur une requête multipart malformée, transmise via next(err) plutôt qu'un throw
+// intercepté) tombait auparavant sur le handler d'erreur par défaut d'Express, qui inclut la
+// stack trace complète dans la réponse HTTP hors production — exposant la structure interne du
+// code et des chemins disque absolus à quiconque peut atteindre le serveur. Doit être enregistré
+// après toutes les routes (Express reconnaît un middleware d'erreur par sa signature à 4
+// arguments) : le message précis reste dans les logs serveur, jamais dans la réponse.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[achats] Erreur non interceptée :', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Erreur interne du serveur.' });
+});
 
 /**
  * Ouvre l'URL dans le navigateur par défaut du système. Utilisé pour que

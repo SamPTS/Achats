@@ -53,6 +53,11 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
   const [batchCodeLines, setBatchCodeLines] = useState<string[]>(['']);
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
+  // Progression affichée pendant runBatchSearch/downloadBatch (voir leurs boucles) — sans elle,
+  // seul le libellé du bouton changeait ("Recherche…"/"Génération…") pendant tout le traitement
+  // du lot, sans aucun repère de progression, ce qui peut donner l'impression que l'application
+  // est figée sur un lot volumineux avec une latence réseau non négligeable.
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
 
   useEffect(() => {
     Promise.all([generateService.listGenerableTemplates(), conditionsService.listConditions()]).then(([t, c]) => {
@@ -160,9 +165,12 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
     const codes = parseCodes(batchCodeLines);
     if (!canSearch || codes.length === 0) return;
     setBatchBusy(true);
+    setBatchItems([]);
+    setBatchProgress({ done: 0, total: codes.length });
     try {
-      const items: BatchItem[] = [];
+      let done = 0;
       for (const c of codes) {
+        let item: BatchItem;
         try {
           const result = await generateService.searchCode(conditionsVersionId, c);
           if (result.length === 1) {
@@ -171,19 +179,25 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
               templateId,
               result[0].rowIndex,
             );
-            items.push({ code: c, statut: 'resolue', rowIndex: result[0].rowIndex, values: v, colonnesManquantes: cm });
+            item = { code: c, statut: 'resolue', rowIndex: result[0].rowIndex, values: v, colonnesManquantes: cm };
           } else {
-            items.push({ code: c, statut: 'ambigue', matches: result });
+            item = { code: c, statut: 'ambigue', matches: result };
           }
         } catch (e) {
-          items.push({ code: c, statut: 'introuvable', message: e instanceof Error ? e.message : String(e) });
+          item = { code: c, statut: 'introuvable', message: e instanceof Error ? e.message : String(e) };
         }
+        // Mise à jour incrémentale (un code traité à la fois) plutôt qu'un seul setBatchItems en
+        // fin de boucle : la table de relecture se remplit au fur et à mesure, visible pendant le
+        // traitement plutôt qu'en un seul bloc à la fin.
+        setBatchItems((cur) => [...cur, item]);
+        done++;
+        setBatchProgress({ done, total: codes.length });
       }
-      setBatchItems(items);
     } catch (e) {
       setError(logAndGetMessage(e, 'GenerateTab.runBatchSearch'));
     } finally {
       setBatchBusy(false);
+      setBatchProgress(null);
     }
   }
 
@@ -217,6 +231,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
     setBatchBusy(true);
     setError(null);
     setInfo(null);
+    setBatchProgress({ done: 0, total: aTraiter.length });
     try {
       const { blob, filename, erreurs } = await generateService.generateContractsBatch(
         aTraiter.map((it) => ({
@@ -226,6 +241,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
           values: it.values!,
           traitePar,
         })),
+        (done, total) => setBatchProgress({ done, total }),
       );
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -245,6 +261,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       setError(logAndGetMessage(e, 'GenerateTab.downloadBatch'));
     } finally {
       setBatchBusy(false);
+      setBatchProgress(null);
     }
   }
 
@@ -382,9 +399,19 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
                 <Icon iconName="Add" /> Ajouter une ligne
               </button>
               <button disabled={batchBusy || !canSearch || parseCodes(batchCodeLines).length === 0} onClick={runBatchSearch}>
-                {batchBusy ? 'Recherche…' : 'Rechercher tout'}
+                {batchProgress ? `Recherche… (${batchProgress.done}/${batchProgress.total})` : 'Rechercher tout'}
               </button>
             </div>
+          </div>
+        )}
+
+        {!templateId && templates.length > 0 && (
+          <div className="alert error mt1">Sélectionnez un template de contrat pour pouvoir rechercher un code.</div>
+        )}
+        {templateId && !conditionsVersionId && (
+          <div className="alert error mt1">
+            Sélectionnez un fichier de conditions commerciales pour pouvoir rechercher un code — ou déposez-en un dans
+            l&apos;onglet Conditions commerciales si aucun n&apos;est encore disponible.
           </div>
         )}
 
@@ -544,7 +571,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
             </tbody>
           </table>
           <button className="mt1" disabled={batchBusy || resoluCount === 0} onClick={downloadBatch}>
-            {batchBusy ? 'Génération…' : `Télécharger ${resoluCount} contrat(s) (ZIP)`}
+            {batchProgress ? `Génération… (${batchProgress.done}/${batchProgress.total})` : `Télécharger ${resoluCount} contrat(s) (ZIP)`}
           </button>
         </div>
       )}

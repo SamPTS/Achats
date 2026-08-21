@@ -21,8 +21,21 @@ function decodeXmlEntities(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
+// XML 1.0 interdit certains caractères de contrôle (hors tabulation/retour à la ligne) — un
+// caractère hors de cette plage rend le document.xml généré invalide, et Word refuse ensuite
+// d'ouvrir le .docx ("contenu illisible, réparation nécessaire"). Une valeur de formulaire saisie
+// par un utilisateur (champ texte libre) peut en contenir un sans que rien ne l'empêche à la
+// saisie (copié-collé depuis un PDF ou un export mal formé) — on les retire silencieusement
+// plutôt que de produire un document cassé. Même correctif que server/src/utils/docx.ts.
+// eslint-disable-next-line no-control-regex
+const XML_ILLEGAL_CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+
 function encodeXmlText(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s
+    .replace(XML_ILLEGAL_CONTROL_CHARS, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 interface RunInfo {

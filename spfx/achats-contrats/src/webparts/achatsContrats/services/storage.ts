@@ -24,10 +24,20 @@ function slug(s: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Construit un nom de fichier stocké: {type}_{libelle}_{YYYYMMDD-HHMM}.{ext} — jamais écrasé, chaque dépôt est unique. */
+/** Courte chaîne aléatoire pour éviter une collision de nom entre deux dépôts du même libellé
+ * dans la même minute (deux utilisateurs, deux onglets) — sans elle, buildStoredFilename produit
+ * exactement le même nom et addUsingPath({Overwrite:false}) lève une erreur SharePoint brute, non
+ * spécifiquement gérée, affichée telle quelle (message technique, non localisé) plutôt que d'être
+ * simplement évitée. */
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+/** Construit un nom de fichier stocké: {type}_{libelle}_{YYYYMMDD-HHMM}-{alea}.{ext} — jamais
+ * écrasé, chaque dépôt est unique. */
 export function buildStoredFilename(type: string, libelle: string, ext: string): string {
   const safeLibelle = slug(libelle).slice(0, 60) || 'fichier';
-  return `${type}_${safeLibelle}_${timestampTag()}.${ext}`;
+  return `${type}_${safeLibelle}_${timestampTag()}-${randomSuffix()}.${ext}`;
 }
 
 /** Nettoie un segment de nom de fichier issu d'une saisie libre (ex : code sous-segment). */

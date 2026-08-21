@@ -34,11 +34,29 @@ export const LIBRARIES = {
 const GENERIC_LIST_TEMPLATE = 100;
 const DOCUMENT_LIBRARY_TEMPLATE = 101;
 
+/** Distingue un élément réellement absent (404 SharePoint) d'un échec transitoire (réseau,
+ * throttling 429, droits insuffisants...). Les appelants (getConditionsVersion, getTemplate) ne
+ * doivent traduire en "introuvable" que le premier cas : masquer aussi les échecs transitoires
+ * sous ce même message trompe l'utilisateur, qui croit l'élément supprimé alors qu'il s'agit d'un
+ * problème temporaire à réessayer. PnPjs lève une HttpRequestError avec .status/.isHttpRequestError
+ * pour toute réponse HTTP en erreur (voir @pnp/queryable/behaviors/parsers.d.ts). */
+export function isNotFoundError(e: unknown): boolean {
+  const err = e as { isHttpRequestError?: boolean; status?: number } | undefined;
+  return !!err?.isHttpRequestError && err.status === 404;
+}
+
 async function ensureField(add: () => Promise<unknown>): Promise<void> {
   try {
     await add();
-  } catch {
-    // Le champ existe déjà (ou une autre contrainte bénigne) : on continue.
+  } catch (e) {
+    // Le champ existe déjà (cas normal, largement le plus fréquent) — mais aussi potentiellement
+    // des droits insuffisants pour créer CE champ précis, alors que la liste elle-même a pu être
+    // créée par ailleurs : dans ce cas, le provisionnement "réussit" en apparence mais une colonne
+    // manque, ce qui causera plus tard une erreur confuse (ex. un update() échouant sur un champ
+    // absent) très difficile à diagnostiquer sans cette trace. Toujours avalé (jamais bloquant :
+    // interrompre tout le provisionnement pour un seul champ serait pire), mais désormais visible.
+    // eslint-disable-next-line no-console
+    console.warn('[achats-contrats] ensureField : ajout de champ ignoré (déjà existant, ou erreur) :', e);
   }
 }
 

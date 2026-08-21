@@ -1,9 +1,10 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryOnce, withListRecovery, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryOnce, withListRecovery, isNotFoundError, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl, getFileModified } from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
+import { LruCache } from './lruCache';
 import { odataEscape } from './odata';
 import type { ConditionsVersion } from '../model/types';
 
@@ -81,8 +82,9 @@ export async function listConditions(): Promise<ConditionsVersion[]> {
 
 // Cache en mémoire des lignes déjà lues, par identifiant de version (voir readConditionsRows plus
 // bas). Déclaré avant resyncIfFileChanged, qui l'invalide, pour rester lisible dans l'ordre
-// d'exécution.
-const rowsCache = new Map<string, Record<string, string>[]>();
+// d'exécution. Borné à 10 versions (LruCache) : une session longue peut consulter plusieurs
+// dizaines de versions différentes, et rien ne libérait jamais leur contenu du navigateur.
+const rowsCache = new LruCache<string, Record<string, string>[]>(10);
 
 export async function getConditionsVersion(id: string): Promise<ConditionsVersion | undefined> {
   await ensureProvisioned();
@@ -91,8 +93,12 @@ export async function getConditionsVersion(id: string): Promise<ConditionsVersio
       list().items.getById(Number(id)).select(...SELECT_FIELDS)(),
     )) as ConditionsVersionItem;
     return toModel(await resyncIfFileChanged(item));
-  } catch {
-    return undefined;
+  } catch (e) {
+    // Ne traduit en "introuvable" (undefined) qu'une vraie absence (404) : un échec transitoire
+    // (réseau, throttling SharePoint 429, droits insuffisants) remonte tel quel plutôt que de
+    // laisser croire à l'utilisateur que la version a été supprimée alors qu'il faut réessayer.
+    if (isNotFoundError(e)) return undefined;
+    throw e;
   }
 }
 
@@ -172,10 +178,20 @@ export async function readConditionsRows(version: ConditionsVersion): Promise<{ 
   return { rows: parsed.rows };
 }
 
+// Refuse tout fichier dépassant cette taille avant même de le charger en mémoire/décompresser :
+// sans cette borne, un fichier .xlsx très volumineux — ou conçu comme "zip bomb" (rapport de
+// compression extrême) — peut geler ou faire planter l'onglet du navigateur de la personne qui le
+// dépose, puisque le fichier entier est chargé en mémoire puis entièrement décompressé (ExcelJS)
+// avant tout autre traitement. 50 Mo couvre largement un fichier de conditions réaliste.
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+
 export async function uploadConditions(file: File, deposePar: string): Promise<ConditionsVersion> {
   await ensureProvisioned();
   if (!/\.xlsx$/i.test(file.name)) {
     throw new Error('Seuls les fichiers .xlsx sont acceptés.');
+  }
+  if (file.size > MAX_UPLOAD_SIZE) {
+    throw new Error(`Fichier trop volumineux (${Math.round(file.size / 1024 / 1024)} Mo, maximum 50 Mo).`);
   }
   const buffer = await file.arrayBuffer();
   const parsed = await parseConditionsFile(buffer);
@@ -233,6 +249,11 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
           return found.Id;
         })();
 
+  // Rattrape le cas rare de deux dépôts quasi simultanés ayant chacun cru être le premier (donc
+  // tous deux EstActive=true) — voir reconcileSingleActive. Fait avant la relecture finale pour
+  // que le modèle retourné reflète l'état réellement retenu, pas un état intermédiaire périmé.
+  if (estActive) await reconcileSingleActive();
+
   const created = (await retryOnce(() =>
     list().items.getById(newId).select(...SELECT_FIELDS)(),
   )) as ConditionsVersionItem;
@@ -249,11 +270,37 @@ export async function setConditionsCodeColumn(id: string, colonneCodeSousSegment
   await list().items.getById(Number(id)).update({ ColonneCodeSousSegment: colonneCodeSousSegment || null });
 }
 
+/** SharePoint n'offre aucune transaction entre plusieurs écritures : deux appels concurrents (deux
+ * onglets, deux dépôts quasi simultanés) peuvent chacun lire "aucune version active" avant que
+ * l'autre ait fini d'écrire, aboutissant à deux (ou plus) versions EstActive=1 en même temps —
+ * observable après coup, jamais empêchable côté client seul. Cette fonction rattrape cet état :
+ * si plusieurs versions sont actives, ne garde que la plus récemment déposée et désactive les
+ * autres. Appelée après chaque écriture qui pourrait créer ou toucher à l'état actif
+ * (activateConditions, uploadConditions), pour que l'incohérence ne survive jamais plus qu'un
+ * court instant. */
+async function reconcileSingleActive(): Promise<void> {
+  const actives = (await list().items.select('Id', 'DateDepot').filter('EstActive eq 1 and Archive eq 0')()) as {
+    Id: number;
+    DateDepot: string;
+  }[];
+  if (actives.length <= 1) return;
+  const keep = actives.reduce((a, b) => (a.DateDepot > b.DateDepot ? a : b));
+  await Promise.all(
+    actives.filter((a) => a.Id !== keep.Id).map((a) => list().items.getById(a.Id).update({ EstActive: false })),
+  );
+}
+
 export async function activateConditions(id: string): Promise<void> {
   await ensureProvisioned();
-  const actives = (await list().items.select('Id').filter('EstActive eq 1')()) as { Id: number }[];
-  await Promise.all(actives.map((a) => list().items.getById(a.Id).update({ EstActive: false })));
+  // Active la nouvelle version AVANT de désactiver les autres (et non l'inverse) : un échec au
+  // milieu de la séquence (réseau, throttling 429...) laisse alors au pire deux versions actives
+  // à la fois (rattrapable par reconcileSingleActive) plutôt qu'aucune (qui désactive
+  // silencieusement la détection des mappings devenus invalides ailleurs dans l'application — voir
+  // archiveConditions ci-dessous).
   await list().items.getById(Number(id)).update({ EstActive: true });
+  const actives = (await list().items.select('Id').filter('EstActive eq 1')()) as { Id: number }[];
+  await Promise.all(actives.filter((a) => a.Id !== Number(id)).map((a) => list().items.getById(a.Id).update({ EstActive: false })));
+  await reconcileSingleActive();
 }
 
 /** Archiver la version active est refusé : voir server/src/routes/conditions.ts pour le pourquoi

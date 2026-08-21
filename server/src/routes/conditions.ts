@@ -105,8 +105,14 @@ router.patch('/:id', (req, res) => {
 router.post('/:id/activate', (req, res) => {
   const row = conditionsVersionsTable.getById(req.params.id);
   if (!row) return res.status(404).json({ error: 'Version introuvable.' });
-  conditionsVersionsTable.updateWhere(() => true, { estActive: false });
-  conditionsVersionsTable.update(req.params.id, { estActive: true });
+  // Une seule écriture disque pour les deux mutations (activer celle-ci, désactiver les autres) —
+  // deux persist() séparés laissaient un état intermédiaire visible sur disque si le processus
+  // était interrompu entre les deux (dans le pire ordre, plus aucune version active après un
+  // crash, ce qui désactive silencieusement la détection des mappings devenus invalides — voir
+  // /:id/archive) ; un seul commit() élimine cette fenêtre.
+  conditionsVersionsTable.updateNoPersist(req.params.id, { estActive: true });
+  conditionsVersionsTable.updateWhereNoPersist((v) => v.id !== req.params.id, { estActive: false });
+  conditionsVersionsTable.commit();
   res.json({ ok: true });
 });
 

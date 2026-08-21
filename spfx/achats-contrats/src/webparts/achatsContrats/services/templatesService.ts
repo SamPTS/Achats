@@ -1,9 +1,10 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
-import { ensureProvisioned, retryOnce, retryUntilValid, withListRecovery, LISTS, LIBRARIES } from './provisioning';
+import { ensureProvisioned, retryOnce, retryUntilValid, withListRecovery, isNotFoundError, LISTS, LIBRARIES } from './provisioning';
 import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl, getFileModified } from './storage';
 import { extractVariablesFromDocx } from './docx';
+import { LruCache } from './lruCache';
 import { buildBlankMappingWorkbook as buildBlankMappingWorkbookXlsx, parseMappingFile } from './excel';
 import { getActiveConditionsVersion, getConditionsVersion } from './conditionsService';
 import { odataEscape } from './odata';
@@ -174,8 +175,10 @@ export async function listTemplates(): Promise<Template[]> {
 // Évite de retélécharger le même .docx à chaque contrat généré lors d'une génération en lot
 // (plusieurs codes sur le même template) — voir conditionsService.ts (rowsCache) pour le même
 // principe côté fichier de conditions. Déclaré avant getTemplate/resyncTemplateIfFileChanged, qui
-// le référencent, pour rester lisible dans l'ordre d'exécution.
-const templateFileCache = new Map<string, ArrayBuffer>();
+// le référencent, pour rester lisible dans l'ordre d'exécution. Borné à 10 templates (LruCache) :
+// voir rowsCache dans conditionsService.ts pour la même raison (dérive mémoire sur une session
+// longue).
+const templateFileCache = new LruCache<string, ArrayBuffer>(10);
 
 export async function getTemplate(id: string): Promise<Template | undefined> {
   await ensureProvisioned();
@@ -202,8 +205,11 @@ export async function getTemplate(id: string): Promise<Template | undefined> {
     // cas seulement, plutôt que de garder mappingsRaw potentiellement périmé.
     const finalMappingsRaw = resynced === item ? mappingsRaw : await getMappingsRaw(id);
     return toModelSync(resynced, finalMappingsRaw, active ? active.colonnes : null);
-  } catch {
-    return undefined;
+  } catch (e) {
+    // Voir conditionsService.getConditionsVersion : ne traduit en "introuvable" qu'une vraie
+    // absence (404), pas un échec transitoire (réseau, throttling, droits) qui doit remonter.
+    if (isNotFoundError(e)) return undefined;
+    throw e;
   }
 }
 
@@ -272,6 +278,11 @@ async function recoverTemplateId(groupId: string, version: number): Promise<stri
   return String(found.Id);
 }
 
+// Voir MAX_UPLOAD_SIZE dans conditionsService.ts pour la même raison : éviter qu'un .docx
+// volumineux (ou une "zip bomb") ne gèle l'onglet du navigateur en le chargeant/décompressant
+// entièrement avant tout autre traitement.
+const MAX_TEMPLATE_UPLOAD_SIZE = 50 * 1024 * 1024;
+
 export async function uploadTemplate(opts: {
   file: File;
   libelle: string;
@@ -283,6 +294,9 @@ export async function uploadTemplate(opts: {
   if (!/\.docx$/i.test(opts.file.name)) throw new Error('Seuls les fichiers .docx sont acceptés.');
   const libelle = opts.libelle.trim();
   if (!libelle) throw new Error('Le libellé du template est requis.');
+  if (opts.file.size > MAX_TEMPLATE_UPLOAD_SIZE) {
+    throw new Error(`Fichier trop volumineux (${Math.round(opts.file.size / 1024 / 1024)} Mo, maximum 50 Mo).`);
+  }
 
   const buffer = await opts.file.arrayBuffer();
   const variables = await extractVariablesFromDocx(buffer);

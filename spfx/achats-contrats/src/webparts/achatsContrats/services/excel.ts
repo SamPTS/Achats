@@ -257,6 +257,18 @@ export function findDuplicateCodes(rows: Record<string, string>[], colonneCode: 
   return duplicates;
 }
 
+/** Écrit la liste des colonnes dans une feuille auxiliaire masquée et renvoie une formule de
+ * référence de plage vers celle-ci — utilisé par buildBlankMappingWorkbook quand la formule de
+ * liste "inline" dépasserait la limite Excel de 255 caractères. */
+function buildAuxColumnListFormula(workbook: ExcelJS.Workbook, colonnes: string[]): string {
+  const aux = workbook.addWorksheet('ListeColonnes');
+  aux.state = 'veryHidden';
+  colonnes.forEach((c, i) => {
+    aux.getCell(`A${i + 1}`).value = c;
+  });
+  return `ListeColonnes!$A$1:$A$${colonnes.length}`;
+}
+
 /** Génère un fichier Excel de mapping vierge: Variable | Colonne correspondante | (aide) Colonnes disponibles. */
 export async function buildBlankMappingWorkbook(
   variables: string[],
@@ -280,9 +292,17 @@ export async function buildBlankMappingWorkbook(
     });
   }
 
-  // Liste déroulante de validation sur la colonne B (Colonne correspondante)
+  // Liste déroulante de validation sur la colonne B (Colonne correspondante). Excel limite une
+  // formule de validation de liste "inline" (valeurs séparées par virgules entre guillemets) à
+  // 255 caractères — au-delà, Excel ignore silencieusement la validation à l'ouverture, sans
+  // avertir ni l'application ni l'utilisateur (observé au-delà d'une trentaine de colonnes selon
+  // la longueur de leurs noms). Si la liste dépasse cette limite, on la déporte dans une feuille
+  // auxiliaire masquée et on référence cette plage à la place — pas de limite de longueur dans ce
+  // cas, seulement une limite de nombre de lignes (largement suffisante ici).
   if (colonnesDisponibles.length > 0) {
-    const formula = `"${colonnesDisponibles.join(',').replace(/"/g, '')}"`;
+    const inlineFormula = `"${colonnesDisponibles.join(',').replace(/"/g, '')}"`;
+    const formula =
+      inlineFormula.length <= 255 ? inlineFormula : buildAuxColumnListFormula(workbook, colonnesDisponibles);
     for (let i = 0; i < variables.length; i++) {
       const cell = sheet.getCell(`B${i + 2}`);
       cell.dataValidation = {
