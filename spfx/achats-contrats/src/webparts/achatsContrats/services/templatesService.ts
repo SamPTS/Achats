@@ -271,8 +271,18 @@ export async function uploadTemplate(opts: {
   return created;
 }
 
+// Cache en mémoire du contenu déjà téléchargé, par identifiant de template (cette version précise
+// d'un template est immuable une fois déposée). Évite de retélécharger le même .docx à chaque
+// contrat généré lors d'une génération en lot (plusieurs codes sur le même template) — voir
+// conditionsService.ts (rowsCache) pour le même principe côté fichier de conditions.
+const templateFileCache = new Map<string, ArrayBuffer>();
+
 export async function downloadTemplateFile(template: Template): Promise<ArrayBuffer> {
-  return downloadFromServerRelativeUrl(template.cheminStockage);
+  const cached = templateFileCache.get(template.id);
+  if (cached) return cached;
+  const buffer = await downloadFromServerRelativeUrl(template.cheminStockage);
+  templateFileCache.set(template.id, buffer);
+  return buffer;
 }
 
 export async function buildBlankMappingWorkbook(templateId: string, conditionsVersionId?: string): Promise<ArrayBuffer> {

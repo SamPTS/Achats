@@ -5,6 +5,29 @@ import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../model/types';
 
+interface BatchItem {
+  code: string;
+  statut: 'resolue' | 'ambigue' | 'introuvable' | 'erreur';
+  rowIndex?: number;
+  matches?: SearchMatch[];
+  values?: Record<string, string>;
+  colonnesManquantes?: string[];
+  message?: string;
+  expanded?: boolean;
+}
+
+function parseCodes(text: string): string[] {
+  const seen = new Set<string>();
+  const codes: string[] = [];
+  for (const line of text.split('\n')) {
+    const code = line.trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    codes.push(code);
+  }
+  return codes;
+}
+
 export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () => void }): JSX.Element {
   const [templates, setTemplates] = useState<GenerateTemplateOption[]>([]);
   const [conditions, setConditions] = useState<ConditionsVersion[]>([]);
@@ -22,6 +45,12 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
   const [info, setInfo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // --- Mode "plusieurs contrats à la fois" ---
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchCodesText, setBatchCodesText] = useState('');
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
+  const [batchBusy, setBatchBusy] = useState(false);
+
   useEffect(() => {
     Promise.all([generateService.listGenerableTemplates(), conditionsService.listConditions()]).then(([t, c]) => {
       setTemplates(t);
@@ -37,6 +66,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
   }, []);
 
   const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
+  const canSearch = !!templateId && !!conditionsVersionId && !!selectedTemplate?.mappingComplet;
 
   function resetSearch(): void {
     setMatches(null);
@@ -44,12 +74,13 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
     setValues(null);
     setColonnesManquantes([]);
     setInfo(null);
+    setBatchItems([]);
   }
 
   async function runSearch(): Promise<void> {
     setError(null);
     resetSearch();
-    if (!conditionsVersionId || !code.trim() || !selectedTemplate?.mappingComplet) return;
+    if (!canSearch || !code.trim()) return;
     setBusy(true);
     try {
       const result = await generateService.searchCode(conditionsVersionId, code.trim());
@@ -103,6 +134,102 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
       setError(logAndGetMessage(e, 'GenerateTab.download'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // --- Mode lot ---
+
+  async function runBatchSearch(): Promise<void> {
+    setError(null);
+    setInfo(null);
+    const codes = parseCodes(batchCodesText);
+    if (!canSearch || codes.length === 0) return;
+    setBatchBusy(true);
+    try {
+      const items: BatchItem[] = [];
+      for (const c of codes) {
+        try {
+          const result = await generateService.searchCode(conditionsVersionId, c);
+          if (result.length === 1) {
+            const { values: v, colonnesManquantes: cm } = await generateService.getMappedValues(
+              conditionsVersionId,
+              templateId,
+              result[0].rowIndex,
+            );
+            items.push({ code: c, statut: 'resolue', rowIndex: result[0].rowIndex, values: v, colonnesManquantes: cm });
+          } else {
+            items.push({ code: c, statut: 'ambigue', matches: result });
+          }
+        } catch (e) {
+          items.push({ code: c, statut: 'introuvable', message: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      setBatchItems(items);
+    } catch (e) {
+      setError(logAndGetMessage(e, 'GenerateTab.runBatchSearch'));
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  async function resolveBatchAmbiguous(code: string, idx: number): Promise<void> {
+    setError(null);
+    try {
+      const { values: v, colonnesManquantes: cm } = await generateService.getMappedValues(conditionsVersionId, templateId, idx);
+      setBatchItems((cur) =>
+        cur.map((it) => (it.code === code ? { ...it, statut: 'resolue', rowIndex: idx, values: v, colonnesManquantes: cm } : it)),
+      );
+    } catch (e) {
+      setError(logAndGetMessage(e, 'GenerateTab.resolveBatchAmbiguous'));
+    }
+  }
+
+  function updateBatchValue(code: string, variable: string, value: string): void {
+    setBatchItems((cur) =>
+      cur.map((it) => (it.code === code && it.values ? { ...it, values: { ...it.values, [variable]: value } } : it)),
+    );
+  }
+
+  function toggleExpand(code: string): void {
+    setBatchItems((cur) => cur.map((it) => (it.code === code ? { ...it, expanded: !it.expanded } : it)));
+  }
+
+  const resoluCount = batchItems.filter((it) => it.statut === 'resolue').length;
+
+  async function downloadBatch(): Promise<void> {
+    const aTraiter = batchItems.filter((it) => it.statut === 'resolue' && it.values);
+    if (aTraiter.length === 0) return;
+    setBatchBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const { blob, filename, erreurs } = await generateService.generateContractsBatch(
+        aTraiter.map((it) => ({
+          templateId,
+          conditionsVersionId,
+          codeSousSegment: it.code,
+          values: it.values!,
+          traitePar,
+        })),
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+
+      const ignores = batchItems.length - aTraiter.length;
+      const parts = [`${aTraiter.length - erreurs.length} contrat(s) généré(s) et regroupé(s) dans ${filename}.`];
+      if (erreurs.length > 0) parts.push(`${erreurs.length} échec(s) : ${erreurs.map((e) => `${e.codeSousSegment} (${e.message})`).join(' · ')}.`);
+      if (ignores > 0) parts.push(`${ignores} code(s) ignoré(s) (non résolus).`);
+      setInfo(parts.join(' '));
+    } catch (e) {
+      setError(logAndGetMessage(e, 'GenerateTab.downloadBatch'));
+    } finally {
+      setBatchBusy(false);
     }
   }
 
@@ -176,26 +303,57 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
           </div>
         </div>
 
-        <div className="form-row">
-          <div>
-            <label>Code sous-segment</label>
+        <div className="form-row" style={{ alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 'normal' }}>
             <input
-              type="search"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-              placeholder="ex : SS001"
+              type="checkbox"
+              checked={batchMode}
+              onChange={(e) => {
+                setBatchMode(e.target.checked);
+                resetSearch();
+                setCode('');
+                setBatchCodesText('');
+              }}
             />
-          </div>
-          <button
-            disabled={busy || !templateId || !conditionsVersionId || !code.trim() || !selectedTemplate?.mappingComplet}
-            onClick={runSearch}
-          >
-            Rechercher
-          </button>
+            Générer plusieurs contrats à la fois
+          </label>
         </div>
 
-        {matches && matches.length > 1 && rowIndex === null && (
+        {!batchMode ? (
+          <div className="form-row">
+            <div>
+              <label>Code sous-segment</label>
+              <input
+                type="search"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+                placeholder="ex : SS001"
+              />
+            </div>
+            <button disabled={busy || !canSearch || !code.trim()} onClick={runSearch}>
+              Rechercher
+            </button>
+          </div>
+        ) : (
+          <div className="form-row">
+            <div style={{ flex: 1 }}>
+              <label>Codes sous-segment (un par ligne)</label>
+              <textarea
+                value={batchCodesText}
+                onChange={(e) => setBatchCodesText(e.target.value)}
+                rows={5}
+                placeholder={'ex :\nSS001\nSS002\nSS003'}
+                style={{ width: '100%', fontFamily: 'inherit' }}
+              />
+            </div>
+            <button disabled={batchBusy || !canSearch || parseCodes(batchCodesText).length === 0} onClick={runBatchSearch}>
+              {batchBusy ? 'Recherche…' : 'Rechercher tout'}
+            </button>
+          </div>
+        )}
+
+        {!batchMode && matches && matches.length > 1 && rowIndex === null && (
           <div className="mt1">
             <p className="muted small">Plusieurs lignes correspondent à ce code — sélectionnez la ligne concernée :</p>
             <table>
@@ -226,7 +384,7 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
         )}
       </div>
 
-      {values && (
+      {!batchMode && values && (
         <div className="panel">
           <h2 className="mb0">Formulaire — relecture et correction</h2>
           <p className="muted small">
@@ -250,6 +408,108 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
           </div>
           <button className="mt1" disabled={busy} onClick={download}>
             {busy ? 'Génération…' : 'Télécharger le contrat'}
+          </button>
+        </div>
+      )}
+
+      {batchMode && batchItems.length > 0 && (
+        <div className="panel">
+          <h2 className="mb0">Relecture du lot ({batchItems.length} code(s))</h2>
+          <p className="muted small">
+            Dépliez une ligne pour relire ou corriger ses valeurs avant génération, comme pour un contrat unique. Un code
+            introuvable ou resté ambigu (plusieurs lignes correspondantes non tranchées) sera ignoré au téléchargement.
+          </p>
+          <table className="mt1">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Statut</th>
+                <th>Alertes</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {batchItems.map((it) => (
+                <React.Fragment key={it.code}>
+                  <tr>
+                    <td>
+                      <code>{it.code}</code>
+                    </td>
+                    <td>
+                      {it.statut === 'resolue' && <span className="badge ok">Résolu</span>}
+                      {it.statut === 'ambigue' && <span className="badge warn">Plusieurs lignes — à choisir</span>}
+                      {it.statut === 'introuvable' && <span className="badge danger">Introuvable</span>}
+                      {it.statut === 'erreur' && <span className="badge danger">Erreur</span>}
+                    </td>
+                    <td>
+                      {it.statut === 'resolue' && it.colonnesManquantes && it.colonnesManquantes.length > 0 && (
+                        <span className="badge warn">{it.colonnesManquantes.length} colonne(s) manquante(s)</span>
+                      )}
+                      {it.statut === 'introuvable' && <span className="muted small">{it.message}</span>}
+                    </td>
+                    <td>
+                      {it.statut === 'resolue' && (
+                        <button className="secondary small" onClick={() => toggleExpand(it.code)}>
+                          {it.expanded ? 'Masquer' : 'Voir / modifier'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {it.statut === 'ambigue' && it.matches && (
+                    <tr>
+                      <td colSpan={4}>
+                        <p className="muted small">Plusieurs lignes correspondent à ce code — choisissez la bonne :</p>
+                        <table>
+                          <thead>
+                            <tr>
+                              {Object.keys(it.matches[0].preview).map((k) => (
+                                <th key={k}>{k}</th>
+                              ))}
+                              <th />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {it.matches.map((m) => (
+                              <tr key={m.rowIndex}>
+                                {Object.values(m.preview).map((v, i) => (
+                                  <td key={i}>{v}</td>
+                                ))}
+                                <td>
+                                  <button className="secondary small" onClick={() => resolveBatchAmbiguous(it.code, m.rowIndex)}>
+                                    Choisir
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                  {it.statut === 'resolue' && it.expanded && it.values && (
+                    <tr>
+                      <td colSpan={4}>
+                        <div className="field-grid">
+                          {Object.entries(it.values).map(([variable, value]) => (
+                            <div className="field" key={variable}>
+                              <label>{variable}</label>
+                              <input
+                                type="text"
+                                value={value}
+                                onChange={(e) => updateBatchValue(it.code, variable, e.target.value)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+          <button className="mt1" disabled={batchBusy || resoluCount === 0} onClick={downloadBatch}>
+            {batchBusy ? 'Génération…' : `Télécharger ${resoluCount} contrat(s) (ZIP)`}
           </button>
         </div>
       )}

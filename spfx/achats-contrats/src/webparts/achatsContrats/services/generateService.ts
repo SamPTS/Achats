@@ -1,11 +1,12 @@
 import '@pnp/sp/lists';
 import '@pnp/sp/items';
+import JSZip from 'jszip';
 import { getSP } from './spClient';
 import { ensureProvisioned, withListRecovery, LISTS } from './provisioning';
 import { getConditionsVersion, readConditionsRows } from './conditionsService';
 import { getTemplate, listTemplates, downloadTemplateFile } from './templatesService';
 import { fillDocxTemplate } from './docx';
-import { safeFileNamePart } from './storage';
+import { safeFileNamePart, timestampTag } from './storage';
 import type { GenerateTemplateOption, GenerationLog, SearchMatch } from '../model/types';
 
 interface GenerationItem {
@@ -142,6 +143,51 @@ export async function generateContract(params: {
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
   return { blob, filename };
+}
+
+export interface GenerateBatchResult {
+  blob: Blob;
+  filename: string;
+  /** Un message par contrat qui a échoué (le reste du lot continue malgré une erreur isolée). */
+  erreurs: { codeSousSegment: string; message: string }[];
+}
+
+/** Génère plusieurs contrats en une fois (un par ligne relue et validée dans l'écran de
+ * génération en lot) et les regroupe dans une seule archive ZIP à télécharger — plutôt que
+ * déclencher N téléchargements séparés, souvent bloqués par le navigateur au-delà de quelques-uns
+ * d'un coup. Le fichier de conditions et le template sont partagés par tout le lot : leur mise en
+ * cache (readConditionsRows, downloadTemplateFile) évite de les retélécharger à chaque contrat. */
+export async function generateContractsBatch(
+  items: { templateId: string; conditionsVersionId: string; codeSousSegment: string; values: Record<string, string>; traitePar: string }[],
+): Promise<GenerateBatchResult> {
+  const zip = new JSZip();
+  const erreurs: { codeSousSegment: string; message: string }[] = [];
+  const usedNames = new Set<string>();
+
+  for (const item of items) {
+    try {
+      const { blob, filename } = await generateContract(item);
+      // Deux codes différents ne devraient jamais produire le même nom de fichier (le code en
+      // fait partie), mais on se protège malgré tout d'une collision plutôt que d'écraser
+      // silencieusement une entrée du zip par une autre.
+      let finalName = filename;
+      let i = 2;
+      while (usedNames.has(finalName)) {
+        finalName = filename.replace(/\.docx$/i, ` (${i++}).docx`);
+      }
+      usedNames.add(finalName);
+      zip.file(finalName, await blob.arrayBuffer());
+    } catch (e) {
+      erreurs.push({ codeSousSegment: item.codeSousSegment, message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  const zipBuffer = await zip.generateAsync({ type: 'arraybuffer' });
+  return {
+    blob: new Blob([zipBuffer], { type: 'application/zip' }),
+    filename: `contrats_${timestampTag()}.zip`,
+    erreurs,
+  };
 }
 
 export async function listGenerations(limit = 50): Promise<GenerationLog[]> {
