@@ -413,3 +413,44 @@ export async function deleteConditions(id: string): Promise<void> {
   }
   await list().items.getById(Number(id)).delete();
 }
+
+/** Supprime TOUTES les versions de conditions existantes, archivées ou non — y compris les
+ * fichiers déposés qu'elles référencent (jamais les fichiers liés en externe, qui ne nous
+ * appartiennent pas, voir deleteConditions). Utilisé par replaceConditionsWithUpload/
+ * replaceConditionsWithLink pour ne plus jamais garder d'historique : contrairement à
+ * uploadConditions/linkExternalConditions (qui empilent une nouvelle version à côté des
+ * précédentes), remplacer le fichier de conditions efface d'abord tout ce qui existait — décision
+ * explicite de l'utilisateur (l'application gérait initialement un historique complet, avec
+ * archivage ; ce n'est plus le comportement voulu pour cet écran). */
+async function deleteAllConditions(): Promise<void> {
+  const items = (await list().items.select('Id', 'CheminStockage', 'Externe').top(2000)()) as {
+    Id: number;
+    CheminStockage: string;
+    Externe: boolean;
+  }[];
+  await Promise.all(
+    items.map(async (it) => {
+      if (!it.Externe) await deleteByServerRelativeUrl(it.CheminStockage);
+      await list().items.getById(it.Id).delete();
+    }),
+  );
+  rowsCache.clear();
+}
+
+/** Remplace le fichier de conditions courant par un nouveau dépôt : supprime d'abord tout ce qui
+ * existait (deleteAllConditions, jamais d'historique conservé pour cet écran), puis dépose le
+ * nouveau fichier normalement (uploadConditions, qui l'activera automatiquement puisqu'il ne
+ * restera alors plus aucune version). */
+export async function replaceConditionsWithUpload(file: File, deposePar: string): Promise<ConditionsVersion> {
+  await ensureProvisioned();
+  await deleteAllConditions();
+  return uploadConditions(file, deposePar);
+}
+
+/** Équivalent de replaceConditionsWithUpload pour un lien vers un fichier existant ailleurs sur
+ * le site (voir linkExternalConditions). */
+export async function replaceConditionsWithLink(reference: string, deposePar: string): Promise<ConditionsVersion> {
+  await ensureProvisioned();
+  await deleteAllConditions();
+  return linkExternalConditions(reference, deposePar);
+}
