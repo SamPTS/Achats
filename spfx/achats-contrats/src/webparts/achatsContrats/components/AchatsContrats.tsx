@@ -7,6 +7,7 @@ import styles from './AchatsContrats.module.scss';
 import type { IAchatsContratsProps } from './IAchatsContratsProps';
 import { getSP } from '../services/spClient';
 import { ensureProvisioned } from '../services/provisioning';
+import { getAppPermissions, AppPermissions } from '../services/permissions';
 import { logAndGetMessage } from '../services/errorLog';
 import ConditionsTab from './ConditionsTab';
 import TemplatesTab from './TemplatesTab';
@@ -24,9 +25,10 @@ initializeIcons();
 type TabKey = 'conditions' | 'templates' | 'generer';
 
 export default function AchatsContrats(props: IAchatsContratsProps): JSX.Element {
-  const [tab, setTab] = useState<TabKey>('conditions');
+  const [tab, setTab] = useState<TabKey | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [perms, setPerms] = useState<AppPermissions | null>(null);
   // Force le remontage des onglets Templates/Générer après un aller-retour sur Templates,
   // pour qu'ils rechargent des données fraîches (pas de store partagé entre onglets ici).
   const [refreshKey, setRefreshKey] = useState(0);
@@ -34,7 +36,14 @@ export default function AchatsContrats(props: IAchatsContratsProps): JSX.Element
   useEffect(() => {
     getSP(props.context);
     ensureProvisioned()
-      .then(() => setReady(true))
+      .then(async () => {
+        const p = await getAppPermissions();
+        setPerms(p);
+        // Onglet de départ : le premier auquel l'utilisateur a droit — un Membre sans accès aux
+        // deux premiers onglets ne doit jamais atterrir sur un onglet Conditions vide/en erreur.
+        setTab(p.isOwner ? 'conditions' : p.canGenerate ? 'generer' : null);
+        setReady(true);
+      })
       .catch((e) =>
         setError(
           `Impossible de préparer les listes SharePoint nécessaires : ${logAndGetMessage(e, 'AchatsContrats.ensureProvisioned')}. ` +
@@ -51,10 +60,22 @@ export default function AchatsContrats(props: IAchatsContratsProps): JSX.Element
     );
   }
 
-  if (!ready) {
+  if (!ready || !perms) {
     return (
       <section className={styles.achatsContrats}>
         <Spinner size={SpinnerSize.medium} label="Préparation de l'application…" />
+      </section>
+    );
+  }
+
+  if (!perms.isOwner && !perms.canGenerate) {
+    return (
+      <section className={styles.achatsContrats}>
+        <div className={styles.brandHeader}>Achats — Contrats fournisseurs</div>
+        <div className="alert error">
+          Vous n&apos;avez pas les autorisations nécessaires pour utiliser cette application. Contactez un
+          propriétaire de ce site pour obtenir l&apos;accès.
+        </div>
       </section>
     );
   }
@@ -66,20 +87,28 @@ export default function AchatsContrats(props: IAchatsContratsProps): JSX.Element
         <Pivot
           selectedKey={tab}
           onLinkClick={(item) => {
-            const key = (item?.props.itemKey as TabKey) ?? 'conditions';
+            const key = (item?.props.itemKey as TabKey) ?? tab;
             setTab(key);
             setRefreshKey((k) => k + 1);
           }}
         >
-          <PivotItem headerText="1. Conditions commerciales" itemKey="conditions" />
-          <PivotItem headerText="2. Templates de contrats" itemKey="templates" />
-          <PivotItem headerText="3. Générer un contrat" itemKey="generer" />
+          {/* Conditions commerciales et Templates de contrats réservés aux propriétaires du site
+              (droits de gestion complets sur les fichiers/mappings) ; Générer un contrat ouvert
+              aux membres, qui n'ont besoin que d'ajouter des éléments (journal des générations). */}
+          {perms.isOwner && <PivotItem headerText="1. Conditions commerciales" itemKey="conditions" />}
+          {perms.isOwner && <PivotItem headerText="2. Templates de contrats" itemKey="templates" />}
+          {perms.canGenerate && <PivotItem headerText="3. Générer un contrat" itemKey="generer" />}
         </Pivot>
       </div>
 
-      {tab === 'conditions' && <ConditionsTab key={`conditions-${refreshKey}`} />}
-      {tab === 'templates' && <TemplatesTab key={`templates-${refreshKey}`} />}
-      {tab === 'generer' && <GenerateTab key={`generer-${refreshKey}`} onGoToTemplates={() => setTab('templates')} />}
+      {tab === 'conditions' && perms.isOwner && <ConditionsTab key={`conditions-${refreshKey}`} />}
+      {tab === 'templates' && perms.isOwner && <TemplatesTab key={`templates-${refreshKey}`} />}
+      {tab === 'generer' && perms.canGenerate && (
+        <GenerateTab
+          key={`generer-${refreshKey}`}
+          onGoToTemplates={perms.isOwner ? () => setTab('templates') : undefined}
+        />
+      )}
     </section>
   );
 }

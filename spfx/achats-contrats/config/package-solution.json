@@ -3,7 +3,7 @@
   "solution": {
     "name": "achats-contrats-client-side-solution",
     "id": "1da9169c-6a80-4049-a6a3-85fd5e9aa94a",
-    "version": "1.0.21.0",
+    "version": "1.0.22.0",
     "includeClientSideAssets": true,
     "skipFeatureDeployment": true,
     "isDomainIsolated": false,
@@ -30,7 +30,7 @@
         "title": "achats-contrats Feature",
         "description": "The feature that activates elements of the achats-contrats solution.",
         "id": "3672935e-1033-421f-b3b3-711d7066b85d",
-        "version": "1.0.21.0"
+        "version": "1.0.22.0"
       }
     ]
   },

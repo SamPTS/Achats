@@ -29,7 +29,14 @@ function parseCodes(lines: string[]): string[] {
   return codes;
 }
 
-export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () => void }): JSX.Element {
+export default function GenerateTab({
+  onGoToTemplates,
+}: {
+  /** Absent si l'utilisateur courant n'a pas accès à l'onglet Templates de contrats (droits
+   * insuffisants — voir permissions.ts) : le lien devient un simple texte informatif plutôt qu'une
+   * action impossible à mener à bien. */
+  onGoToTemplates?: () => void;
+}): JSX.Element {
   const [templates, setTemplates] = useState<GenerateTemplateOption[]>([]);
   const [conditions, setConditions] = useState<ConditionsVersion[]>([]);
   const [templateId, setTemplateId] = useState('');
@@ -298,17 +305,23 @@ export default function GenerateTab({ onGoToTemplates }: { onGoToTemplates: () =
             {selectedTemplate && !selectedTemplate.mappingComplet && (
               <div className="alert error mt1">
                 Le mapping de ce template n&apos;est pas complet (ou une colonne mappée n&apos;existe plus dans le
-                fichier de conditions actif) : terminez-le dans l&apos;onglet{' '}
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onGoToTemplates();
-                  }}
-                >
-                  Templates de contrats
-                </a>{' '}
-                avant de pouvoir générer un contrat avec.
+                fichier de conditions actif) : {onGoToTemplates ? (
+                  <>
+                    terminez-le dans l&apos;onglet{' '}
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onGoToTemplates();
+                      }}
+                    >
+                      Templates de contrats
+                    </a>{' '}
+                    avant de pouvoir générer un contrat avec.
+                  </>
+                ) : (
+                  "contactez un propriétaire du site pour le compléter avant de pouvoir générer un contrat avec."
+                )}
               </div>
             )}
           </div>
