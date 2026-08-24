@@ -195,9 +195,21 @@ export function ensureProvisioned(): Promise<void> {
   return provisioned;
 }
 
+// Incrémenté à chaque fois que doProvision() gagne un nouveau champ/liste : le cache localStorage
+// ci-dessous empêche normalement de rejouer le provisionnement pour un site déjà provisionné (pour
+// éviter une trentaine d'appels réseau à chaque chargement de page, voir ensureProvisioned) — mais
+// cela veut aussi dire qu'un champ ajouté ici APRÈS qu'un site ait déjà été provisionné une
+// première fois n'est jamais créé sur ce site, aucun rechargement de page ne suffisant à le
+// déclencher. Observé en conditions réelles : FichierModifieLe (v1.0.18) ajouté au code sans
+// bumper cette version — tous les sites déjà provisionnés avant cette date n'ont jamais reçu ce
+// champ, provoquant une erreur SharePoint explicite ("Il n'existe pas de champ...") dès la
+// première lecture qui le sélectionne. Toute future ligne "await ensureField(...)" ajoutée dans
+// doProvision() doit s'accompagner d'un incrément de ce nombre.
+const SCHEMA_VERSION = 2;
+
 function storageKey(): string {
   const webUrl = getSP().web.toUrl();
-  return `achats-contrats-provisioned-v1:${webUrl}`;
+  return `achats-contrats-provisioned-v${SCHEMA_VERSION}:${webUrl}`;
 }
 
 function delay(ms: number): Promise<void> {
