@@ -124,6 +124,27 @@ function extractSourceDocId(input: string): string | null {
   }
 }
 
+/** Extrait et décode l'identifiant compact d'un lien de partage COURT SharePoint (celui produit
+ * par défaut par le bouton "Copier le lien" dans l'interface moderne), de la forme
+ * ".../:x:/r/sites/.../fichier.xlsx?d=w<32 caractères hexadécimaux>&csf=1&web=1&e=...". Le chemin
+ * de ce type de lien est purement indicatif (peut différer du chemin réel, ex. accents perdus) —
+ * seul le paramètre "d" identifie fiablement le fichier. Format observé : un préfixe d'une lettre
+ * (type de document) suivi de 32 caractères hexadécimaux représentant un GUID sans tirets ;
+ * réinsérer les tirets aux positions standard (8-4-4-4-12) donne l'identifiant unique du fichier,
+ * exploitable comme sourcedoc via sp.web.getFileById. Retourne null si absent ou de forme
+ * inattendue (le lien n'est alors pas de ce format). */
+function extractCompactDocId(input: string): string | null {
+  try {
+    const raw = new URL(input).searchParams.get('d');
+    if (!raw) return null;
+    const hex = raw.replace(/^[a-z]/i, '');
+    if (!/^[0-9a-f]{32}$/i.test(hex)) return null;
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  } catch {
+    return null;
+  }
+}
+
 /** Convertit une entrée en URL absolue : la laisse telle quelle si elle l'est déjà, sinon la
  * traite comme un chemin relatif au serveur et la préfixe par l'origine du site courant. */
 function toAbsoluteUrl(input: string, currentWebUrl: string): string {
@@ -190,16 +211,24 @@ async function resolveDirectPath(
     };
   } catch (e) {
     if (!isCrossWebPathError(e)) throw e;
-    const absoluteUrl = toAbsoluteUrl(originalInput, sp.web.toUrl());
-    const ownerWebUrl = await resolveOwnerWebUrl(absoluteUrl);
-    // Web([sp.web, url]) construit une requête vers CE web précis (url absolue), en réutilisant
-    // les comportements déjà configurés (authentification SPFx) de sp.web plutôt que d'en
-    // reconstruire une nouvelle instance depuis zéro.
-    const ownerWeb = Web([sp.web, ownerWebUrl]);
-    return (await ownerWeb.getFileByServerRelativePath(serverRelativePath).select('ServerRelativeUrl', 'Name')()) as {
-      ServerRelativeUrl: string;
-      Name: string;
-    };
+    try {
+      const absoluteUrl = toAbsoluteUrl(originalInput, sp.web.toUrl());
+      const ownerWebUrl = await resolveOwnerWebUrl(absoluteUrl);
+      // Web([sp.web, url]) construit une requête vers CE web précis (url absolue), en réutilisant
+      // les comportements déjà configurés (authentification SPFx) de sp.web plutôt que d'en
+      // reconstruire une nouvelle instance depuis zéro.
+      const ownerWeb = Web([sp.web, ownerWebUrl]);
+      return (await ownerWeb.getFileByServerRelativePath(serverRelativePath).select('ServerRelativeUrl', 'Name')()) as {
+        ServerRelativeUrl: string;
+        Name: string;
+      };
+    } catch {
+      // Ce repli est lui-même best-effort (méthode SharePoint pas systématiquement disponible
+      // selon la version/configuration du tenant) : en cas de nouvel échec, on remonte l'erreur
+      // D'ORIGINE (plus parlante : "chemin hors du web courant") plutôt que celle, plus confuse,
+      // de cette tentative de repli.
+      throw e;
+    }
   }
 }
 
@@ -217,10 +246,14 @@ export async function resolveFileReference(input: string): Promise<{ serverRelat
   if (!trimmed) throw new Error('Lien ou chemin du fichier requis.');
 
   const sp = getSP();
-  const sourceDocId = extractSourceDocId(trimmed);
+  // Le lien de partage COURT (celui produit par défaut par "Copier le lien" dans l'interface
+  // moderne, forme ".../:x:/r/sites/.../fichier.xlsx?d=w...") est prioritaire sur la résolution
+  // par chemin : son chemin apparent est purement indicatif (peut différer du chemin réel), seul
+  // l'identifiant "d" est fiable.
+  const docId = extractCompactDocId(trimmed) ?? extractSourceDocId(trimmed);
   try {
-    const info = sourceDocId
-      ? ((await sp.web.getFileById(sourceDocId).select('ServerRelativeUrl', 'Name')()) as {
+    const info = docId
+      ? ((await sp.web.getFileById(docId).select('ServerRelativeUrl', 'Name')()) as {
           ServerRelativeUrl: string;
           Name: string;
         })
