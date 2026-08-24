@@ -28,6 +28,21 @@ const CODE_HEADER_HINTS = [
 
 const MARCHE_HEADER_HINTS = ['marché', 'marche', 'marchés', 'marches'];
 
+/** Parmi les en-têtes correspondant au prédicat, retourne le plus court plutôt que le premier
+ * trouvé. Un en-tête reconstruit en concaténant plusieurs lignes (voir sheetToMatrix — certains
+ * fichiers ont une ligne d'instruction complète au-dessus du vrai libellé, non filtrée par
+ * LIBELLE_GENERIQUE_RE car ce n'est pas un mot isolé comme "AUTO"/"SAISIE") peut accidentellement
+ * contenir le mot recherché au sein d'une phrase bien plus longue que le vrai en-tête — observé en
+ * conditions réelles : la colonne "marché" auto-détectée était en réalité "Corriger manuellement
+ * si l'information renseignée automatiquement est erronée ou manquante – Marché", un intitulé
+ * d'aide, pas le vrai en-tête court "Marché" présent par ailleurs dans le même fichier. Le
+ * candidat le plus court est presque toujours le vrai en-tête plutôt qu'un texte d'aide. */
+function shortestMatch(colonnes: string[], predicate: (c: string) => boolean): string | null {
+  const matches = colonnes.filter(predicate);
+  if (matches.length === 0) return null;
+  return matches.reduce((a, b) => (b.length < a.length ? b : a));
+}
+
 /** Ligne "Actif"/"Inactif" : sert à repérer la feuille et la première ligne de données. */
 const STATUT_RE = /^(actif|inactif)\.?$/i;
 /** Libellés d'instruction de saisie (pas de vrais en-têtes) à ignorer dans la reconstruction. */
@@ -236,14 +251,14 @@ export async function parseConditionsFile(buffer: ArrayBuffer): Promise<ParsedCo
   }
 
   const colonneCodeCandidate =
-    colonnes.find((c) => CODE_HEADER_HINTS.includes(c.trim().toLowerCase())) ??
-    colonnes.find((c) => /code\s*sous[\s-]*segment/i.test(c)) ??
-    colonnes.find((c) => /sous[\s-]*segment/i.test(c)) ??
+    shortestMatch(colonnes, (c) => CODE_HEADER_HINTS.includes(c.trim().toLowerCase())) ??
+    shortestMatch(colonnes, (c) => /code\s*sous[\s-]*segment/i.test(c)) ??
+    shortestMatch(colonnes, (c) => /sous[\s-]*segment/i.test(c)) ??
     null;
 
   const colonneMarcheCandidate =
-    colonnes.find((c) => MARCHE_HEADER_HINTS.includes(c.trim().toLowerCase())) ??
-    colonnes.find((c) => /march[ée]s?/i.test(c)) ??
+    shortestMatch(colonnes, (c) => MARCHE_HEADER_HINTS.includes(c.trim().toLowerCase())) ??
+    shortestMatch(colonnes, (c) => /march[ée]s?/i.test(c)) ??
     null;
 
   return { colonnes, rows, nbLignesVides, colonneCodeCandidate, colonneMarcheCandidate };

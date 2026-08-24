@@ -295,11 +295,16 @@ export default function ConditionsTab(): JSX.Element {
             <div>
               <label>Code sous-segment</label>
               {choosingCol ? (
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <select value={col} onChange={(e) => setCol(e.target.value)}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select
+                    value={col}
+                    onChange={(e) => setCol(e.target.value)}
+                    title={col}
+                    style={{ maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
                     <option value="">—</option>
                     {version.colonnes.map((c) => (
-                      <option key={c} value={c}>
+                      <option key={c} value={c} title={c}>
                         {c}
                       </option>
                     ))}
@@ -309,8 +314,13 @@ export default function ConditionsTab(): JSX.Element {
                   </button>
                 </div>
               ) : version.colonneCodeSousSegment ? (
-                <span>
-                  {version.colonneCodeSousSegment}{' '}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', maxWidth: '100%' }}>
+                  <span
+                    title={version.colonneCodeSousSegment}
+                    style={{ maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {version.colonneCodeSousSegment}
+                  </span>{' '}
                   <button
                     className="icon-btn"
                     title="Modifier la colonne"
@@ -329,11 +339,16 @@ export default function ConditionsTab(): JSX.Element {
             <div>
               <label>Marché</label>
               {choosingMarche ? (
-                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                  <select value={marcheCol} onChange={(e) => setMarcheCol(e.target.value)}>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select
+                    value={marcheCol}
+                    onChange={(e) => setMarcheCol(e.target.value)}
+                    title={marcheCol}
+                    style={{ maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
                     <option value="">—</option>
                     {version.colonnes.map((c) => (
-                      <option key={c} value={c}>
+                      <option key={c} value={c} title={c}>
                         {c}
                       </option>
                     ))}
@@ -343,8 +358,13 @@ export default function ConditionsTab(): JSX.Element {
                   </button>
                 </div>
               ) : version.colonneMarche ? (
-                <span>
-                  {version.colonneMarche}{' '}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', maxWidth: '100%' }}>
+                  <span
+                    title={version.colonneMarche}
+                    style={{ maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
+                    {version.colonneMarche}
+                  </span>{' '}
                   <button
                     className="icon-btn"
                     title="Modifier la colonne"

@@ -394,10 +394,15 @@ export default function GenerateTab({
             {marcheRequise && (
               <div>
                 <label>Marché</label>
-                <select value={marche} onChange={(e) => setMarche(e.target.value)}>
+                <select
+                  value={marche}
+                  onChange={(e) => setMarche(e.target.value)}
+                  title={marche}
+                  style={{ maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
                   <option value="">—</option>
                   {marches.map((m) => (
-                    <option key={m} value={m}>
+                    <option key={m} value={m} title={m}>
                       {m}
                     </option>
                   ))}
@@ -425,10 +430,15 @@ export default function GenerateTab({
                   style={{ flex: 1 }}
                 />
                 {marcheRequise && (
-                  <select value={line.marche} onChange={(e) => updateBatchLine(i, { marche: e.target.value })} style={{ flex: 1 }}>
+                  <select
+                    value={line.marche}
+                    onChange={(e) => updateBatchLine(i, { marche: e.target.value })}
+                    title={line.marche}
+                    style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
                     <option value="">Marché —</option>
                     {marches.map((m) => (
-                      <option key={m} value={m}>
+                      <option key={m} value={m} title={m}>
                         {m}
                       </option>
                     ))}
