@@ -13,6 +13,7 @@ export interface ParsedConditions {
   rows: Record<string, string>[]; // valeurs en texte, cellules vides = ''
   nbLignesVides: number;
   colonneCodeCandidate: string | null;
+  colonneMarcheCandidate: string | null;
 }
 
 const CODE_HEADER_HINTS = [
@@ -24,6 +25,8 @@ const CODE_HEADER_HINTS = [
   'code segment',
   'codesoussegment',
 ];
+
+const MARCHE_HEADER_HINTS = ['marché', 'marche', 'marchés', 'marches'];
 
 /** Ligne "Actif"/"Inactif" : sert à repérer la feuille et la première ligne de données. */
 const STATUT_RE = /^(actif|inactif)\.?$/i;
@@ -238,7 +241,12 @@ export async function parseConditionsFile(buffer: ArrayBuffer): Promise<ParsedCo
     colonnes.find((c) => /sous[\s-]*segment/i.test(c)) ??
     null;
 
-  return { colonnes, rows, nbLignesVides, colonneCodeCandidate };
+  const colonneMarcheCandidate =
+    colonnes.find((c) => MARCHE_HEADER_HINTS.includes(c.trim().toLowerCase())) ??
+    colonnes.find((c) => /march[ée]s?/i.test(c)) ??
+    null;
+
+  return { colonnes, rows, nbLignesVides, colonneCodeCandidate, colonneMarcheCandidate };
 }
 
 /** Détecte les codes sous-segment dupliqués (comparaison trim + casse insensible). */

@@ -6,8 +6,15 @@ import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
 import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../model/types';
 
-interface BatchItem {
+interface BatchLine {
   code: string;
+  marche: string;
+}
+
+interface BatchItem {
+  key: string; // `${code}::${marche}` — identifiant stable pour une paire, même marché vide (pas de colonne marché sur ce fichier)
+  code: string;
+  marche: string;
   statut: 'resolue' | 'ambigue' | 'introuvable' | 'erreur';
   rowIndex?: number;
   matches?: SearchMatch[];
@@ -17,16 +24,24 @@ interface BatchItem {
   expanded?: boolean;
 }
 
-function parseCodes(lines: string[]): string[] {
+function batchKey(line: BatchLine): string {
+  return `${line.code}::${line.marche}`;
+}
+
+function parseBatchLines(lines: BatchLine[], marcheRequise: boolean): BatchLine[] {
   const seen = new Set<string>();
-  const codes: string[] = [];
+  const result: BatchLine[] = [];
   for (const line of lines) {
-    const code = line.trim();
-    if (!code || seen.has(code)) continue;
-    seen.add(code);
-    codes.push(code);
+    const code = line.code.trim();
+    const marche = line.marche.trim();
+    if (!code) continue;
+    if (marcheRequise && !marche) continue;
+    const key = `${code}::${marche}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ code, marche });
   }
-  return codes;
+  return result;
 }
 
 export default function GenerateTab({
@@ -42,7 +57,8 @@ export default function GenerateTab({
   const [templateId, setTemplateId] = useState('');
   const [conditionsVersionId, setConditionsVersionId] = useState('');
   const [code, setCode] = useState('');
-  const [traitePar, setTraitePar] = useState('');
+  const [marche, setMarche] = useState('');
+  const [marches, setMarches] = useState<string[]>([]);
 
   const [matches, setMatches] = useState<SearchMatch[] | null>(null);
   const [rowIndex, setRowIndex] = useState<number | null>(null);
@@ -55,9 +71,9 @@ export default function GenerateTab({
 
   // --- Mode "plusieurs contrats à la fois" ---
   const [batchMode, setBatchMode] = useState(false);
-  // Une ligne de saisie par code, plutôt qu'une zone de texte multi-lignes : on démarre avec une
-  // seule ligne et "Ajouter une ligne" en ajoute une nouvelle vide à la suite.
-  const [batchCodeLines, setBatchCodeLines] = useState<string[]>(['']);
+  // Une ligne de saisie (code + marché) par paire, plutôt qu'une zone de texte multi-lignes : on
+  // démarre avec une seule ligne et "Ajouter une ligne" en ajoute une nouvelle vide à la suite.
+  const [batchLines, setBatchLines] = useState<BatchLine[]>([{ code: '', marche: '' }]);
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
   // Progression affichée pendant runBatchSearch/downloadBatch (voir leurs boucles) — sans elle,
@@ -81,7 +97,22 @@ export default function GenerateTab({
   }, []);
 
   const selectedTemplate = templates.find((t) => t.id === templateId) ?? null;
+  const selectedConditions = conditions.find((c) => c.id === conditionsVersionId) ?? null;
+  // Le marché n'est demandé que si une colonne "marché" est désignée pour le fichier de
+  // conditions sélectionné (voir ConditionsTab) — sinon la recherche se comporte comme avant
+  // (uniquement par code sous-segment).
+  const marcheRequise = !!selectedConditions?.colonneMarche;
   const canSearch = !!templateId && !!conditionsVersionId && !!selectedTemplate?.mappingComplet;
+
+  useEffect(() => {
+    if (!conditionsVersionId || !marcheRequise) {
+      setMarches([]);
+      return;
+    }
+    generateService
+      .listMarches(conditionsVersionId)
+      .then(setMarches, (e) => setError(logAndGetMessage(e, 'GenerateTab (chargement des marchés)')));
+  }, [conditionsVersionId, marcheRequise]);
 
   function resetSearch(): void {
     setMatches(null);
@@ -95,10 +126,10 @@ export default function GenerateTab({
   async function runSearch(): Promise<void> {
     setError(null);
     resetSearch();
-    if (!canSearch || !code.trim()) return;
+    if (!canSearch || !code.trim() || (marcheRequise && !marche.trim())) return;
     setBusy(true);
     try {
-      const result = await generateService.searchCode(conditionsVersionId, code.trim());
+      const result = await generateService.searchCode(conditionsVersionId, code.trim(), marche.trim());
       setMatches(result);
       if (result.length === 1) await resolveRow(result[0].rowIndex);
     } catch (e) {
@@ -134,7 +165,7 @@ export default function GenerateTab({
         conditionsVersionId,
         codeSousSegment: code.trim(),
         values,
-        traitePar,
+        traitePar: '',
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -154,51 +185,52 @@ export default function GenerateTab({
 
   // --- Mode lot ---
 
-  function updateBatchCodeLine(index: number, value: string): void {
-    setBatchCodeLines((cur) => cur.map((c, i) => (i === index ? value : c)));
+  function updateBatchLine(index: number, patch: Partial<BatchLine>): void {
+    setBatchLines((cur) => cur.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
 
-  function addBatchCodeLine(): void {
-    setBatchCodeLines((cur) => [...cur, '']);
+  function addBatchLine(): void {
+    setBatchLines((cur) => [...cur, { code: '', marche: '' }]);
   }
 
-  function removeBatchCodeLine(index: number): void {
-    setBatchCodeLines((cur) => (cur.length <= 1 ? [''] : cur.filter((_, i) => i !== index)));
+  function removeBatchLine(index: number): void {
+    setBatchLines((cur) => (cur.length <= 1 ? [{ code: '', marche: '' }] : cur.filter((_, i) => i !== index)));
   }
 
   async function runBatchSearch(): Promise<void> {
     setError(null);
     setInfo(null);
-    const codes = parseCodes(batchCodeLines);
-    if (!canSearch || codes.length === 0) return;
+    const lignes = parseBatchLines(batchLines, marcheRequise);
+    if (!canSearch || lignes.length === 0) return;
     setBatchBusy(true);
     setBatchItems([]);
-    setBatchProgress({ done: 0, total: codes.length });
+    setBatchProgress({ done: 0, total: lignes.length });
     try {
       let done = 0;
-      for (const c of codes) {
+      for (const ligne of lignes) {
+        const key = batchKey(ligne);
         let item: BatchItem;
         try {
-          const result = await generateService.searchCode(conditionsVersionId, c);
+          const result = await generateService.searchCode(conditionsVersionId, ligne.code, ligne.marche);
           if (result.length === 1) {
             const { values: v, colonnesManquantes: cm } = await generateService.getMappedValues(
               conditionsVersionId,
               templateId,
               result[0].rowIndex,
             );
-            item = { code: c, statut: 'resolue', rowIndex: result[0].rowIndex, values: v, colonnesManquantes: cm };
+            item = { key, ...ligne, statut: 'resolue', rowIndex: result[0].rowIndex, values: v, colonnesManquantes: cm };
           } else {
-            item = { code: c, statut: 'ambigue', matches: result };
+            item = { key, ...ligne, statut: 'ambigue', matches: result };
           }
         } catch (e) {
-          item = { code: c, statut: 'introuvable', message: e instanceof Error ? e.message : String(e) };
+          item = { key, ...ligne, statut: 'introuvable', message: e instanceof Error ? e.message : String(e) };
         }
-        // Mise à jour incrémentale (un code traité à la fois) plutôt qu'un seul setBatchItems en
+        // Mise à jour incrémentale (une paire traitée à la fois) plutôt qu'un seul setBatchItems en
         // fin de boucle : la table de relecture se remplit au fur et à mesure, visible pendant le
         // traitement plutôt qu'en un seul bloc à la fin.
         setBatchItems((cur) => [...cur, item]);
         done++;
-        setBatchProgress({ done, total: codes.length });
+        setBatchProgress({ done, total: lignes.length });
       }
     } catch (e) {
       setError(logAndGetMessage(e, 'GenerateTab.runBatchSearch'));
@@ -208,26 +240,26 @@ export default function GenerateTab({
     }
   }
 
-  async function resolveBatchAmbiguous(code: string, idx: number): Promise<void> {
+  async function resolveBatchAmbiguous(key: string, idx: number): Promise<void> {
     setError(null);
     try {
       const { values: v, colonnesManquantes: cm } = await generateService.getMappedValues(conditionsVersionId, templateId, idx);
       setBatchItems((cur) =>
-        cur.map((it) => (it.code === code ? { ...it, statut: 'resolue', rowIndex: idx, values: v, colonnesManquantes: cm } : it)),
+        cur.map((it) => (it.key === key ? { ...it, statut: 'resolue', rowIndex: idx, values: v, colonnesManquantes: cm } : it)),
       );
     } catch (e) {
       setError(logAndGetMessage(e, 'GenerateTab.resolveBatchAmbiguous'));
     }
   }
 
-  function updateBatchValue(code: string, variable: string, value: string): void {
+  function updateBatchValue(key: string, variable: string, value: string): void {
     setBatchItems((cur) =>
-      cur.map((it) => (it.code === code && it.values ? { ...it, values: { ...it.values, [variable]: value } } : it)),
+      cur.map((it) => (it.key === key && it.values ? { ...it, values: { ...it.values, [variable]: value } } : it)),
     );
   }
 
-  function toggleExpand(code: string): void {
-    setBatchItems((cur) => cur.map((it) => (it.code === code ? { ...it, expanded: !it.expanded } : it)));
+  function toggleExpand(key: string): void {
+    setBatchItems((cur) => cur.map((it) => (it.key === key ? { ...it, expanded: !it.expanded } : it)));
   }
 
   const resoluCount = batchItems.filter((it) => it.statut === 'resolue').length;
@@ -246,7 +278,7 @@ export default function GenerateTab({
           conditionsVersionId,
           codeSousSegment: it.code,
           values: it.values!,
-          traitePar,
+          traitePar: '',
         })),
         (done, total) => setBatchProgress({ done, total }),
       );
@@ -276,8 +308,7 @@ export default function GenerateTab({
     <div>
       <h1>Générer un contrat</h1>
       <p className="subtitle">
-        Sélectionnez un template et un fichier de conditions, saisissez le code sous-segment, relisez le formulaire
-        pré-rempli puis téléchargez le contrat.
+        Sélectionnez un template et un fichier de conditions, saisissez le code sous-segment{marcheRequise ? ' et le marché' : ''}, relisez le formulaire pré-rempli puis téléchargez le contrat.
       </p>
 
       {error && <div className="alert error">{error}</div>}
@@ -342,10 +373,6 @@ export default function GenerateTab({
               ))}
             </select>
           </div>
-          <div>
-            <label>Traité par (optionnel)</label>
-            <input type="text" value={traitePar} onChange={(e) => setTraitePar(e.target.value)} />
-          </div>
         </div>
 
         <div className="form-row" style={{ alignItems: 'center' }}>
@@ -357,7 +384,8 @@ export default function GenerateTab({
                 setBatchMode(e.target.checked);
                 resetSearch();
                 setCode('');
-                setBatchCodeLines(['']);
+                setMarche('');
+                setBatchLines([{ code: '', marche: '' }]);
               }}
             />
             Générer plusieurs contrats à la fois
@@ -376,42 +404,68 @@ export default function GenerateTab({
                 placeholder="ex : SS001"
               />
             </div>
-            <button disabled={busy || !canSearch || !code.trim()} onClick={runSearch}>
+            {marcheRequise && (
+              <div>
+                <label>Marché</label>
+                <select value={marche} onChange={(e) => setMarche(e.target.value)}>
+                  <option value="">—</option>
+                  {marches.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button disabled={busy || !canSearch || !code.trim() || (marcheRequise && !marche.trim())} onClick={runSearch}>
               Rechercher
             </button>
           </div>
         ) : (
           <div className="mt1">
-            <label>Codes sous-segment</label>
-            {batchCodeLines.map((line, i) => (
+            <label>Codes sous-segment{marcheRequise ? ' et marchés' : ''}</label>
+            {batchLines.map((line, i) => (
               <div key={i} className="form-row" style={{ marginTop: i === 0 ? 0 : '0.4rem', alignItems: 'center' }}>
                 <input
                   type="search"
-                  value={line}
-                  onChange={(e) => updateBatchCodeLine(i, e.target.value)}
+                  value={line.code}
+                  onChange={(e) => updateBatchLine(i, { code: e.target.value })}
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter') return;
-                    if (i === batchCodeLines.length - 1) addBatchCodeLine();
+                    if (i === batchLines.length - 1) addBatchLine();
                   }}
                   placeholder="ex : SS001"
                   style={{ flex: 1 }}
                 />
+                {marcheRequise && (
+                  <select value={line.marche} onChange={(e) => updateBatchLine(i, { marche: e.target.value })} style={{ flex: 1 }}>
+                    <option value="">Marché —</option>
+                    {marches.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   className="icon-btn danger"
                   title="Retirer cette ligne"
-                  disabled={batchCodeLines.length === 1 && !line}
-                  onClick={() => removeBatchCodeLine(i)}
+                  disabled={batchLines.length === 1 && !line.code && !line.marche}
+                  onClick={() => removeBatchLine(i)}
                 >
                   <Icon iconName="Delete" />
                 </button>
               </div>
             ))}
             <div className="form-row mt1">
-              <button type="button" className="secondary" onClick={addBatchCodeLine}>
+              <button type="button" className="secondary" onClick={addBatchLine}>
                 <Icon iconName="Add" /> Ajouter une ligne
               </button>
-              <button disabled={batchBusy || !canSearch || parseCodes(batchCodeLines).length === 0} onClick={runBatchSearch}>
+              <button
+                disabled={batchBusy || !canSearch || parseBatchLines(batchLines, marcheRequise).length === 0}
+                onClick={runBatchSearch}
+              >
                 {batchProgress ? `Recherche… (${batchProgress.done}/${batchProgress.total})` : 'Rechercher tout'}
               </button>
             </div>
@@ -430,7 +484,7 @@ export default function GenerateTab({
 
         {!batchMode && matches && matches.length > 1 && rowIndex === null && (
           <div className="mt1">
-            <p className="muted small">Plusieurs lignes correspondent à ce code — sélectionnez la ligne concernée :</p>
+            <p className="muted small">Plusieurs lignes correspondent à cette recherche — sélectionnez la ligne concernée :</p>
             <table>
               <thead>
                 <tr>
@@ -489,15 +543,17 @@ export default function GenerateTab({
 
       {batchMode && batchItems.length > 0 && (
         <div className="panel">
-          <h2 className="mb0">Relecture du lot ({batchItems.length} code(s))</h2>
+          <h2 className="mb0">Relecture du lot ({batchItems.length} ligne(s))</h2>
           <p className="muted small">
-            Dépliez une ligne pour relire ou corriger ses valeurs avant génération, comme pour un contrat unique. Un code
-            introuvable ou resté ambigu (plusieurs lignes correspondantes non tranchées) sera ignoré au téléchargement.
+            Dépliez une ligne pour relire ou corriger ses valeurs avant génération, comme pour un contrat unique. Une
+            ligne introuvable ou restée ambiguë (plusieurs correspondances non tranchées) sera ignorée au
+            téléchargement.
           </p>
           <table className="mt1">
             <thead>
               <tr>
                 <th>Code</th>
+                {marcheRequise && <th>Marché</th>}
                 <th>Statut</th>
                 <th>Alertes</th>
                 <th />
@@ -505,11 +561,12 @@ export default function GenerateTab({
             </thead>
             <tbody>
               {batchItems.map((it) => (
-                <React.Fragment key={it.code}>
+                <React.Fragment key={it.key}>
                   <tr>
                     <td>
                       <code>{it.code}</code>
                     </td>
+                    {marcheRequise && <td>{it.marche}</td>}
                     <td>
                       {it.statut === 'resolue' && <span className="badge ok">Résolu</span>}
                       {it.statut === 'ambigue' && <span className="badge warn">Plusieurs lignes — à choisir</span>}
@@ -524,7 +581,7 @@ export default function GenerateTab({
                     </td>
                     <td>
                       {it.statut === 'resolue' && (
-                        <button className="secondary small" onClick={() => toggleExpand(it.code)}>
+                        <button className="secondary small" onClick={() => toggleExpand(it.key)}>
                           {it.expanded ? 'Masquer' : 'Voir / modifier'}
                         </button>
                       )}
@@ -532,8 +589,8 @@ export default function GenerateTab({
                   </tr>
                   {it.statut === 'ambigue' && it.matches && (
                     <tr>
-                      <td colSpan={4}>
-                        <p className="muted small">Plusieurs lignes correspondent à ce code — choisissez la bonne :</p>
+                      <td colSpan={marcheRequise ? 5 : 4}>
+                        <p className="muted small">Plusieurs lignes correspondent — choisissez la bonne :</p>
                         <table>
                           <thead>
                             <tr>
@@ -550,7 +607,7 @@ export default function GenerateTab({
                                   <td key={i}>{v}</td>
                                 ))}
                                 <td>
-                                  <button className="secondary small" onClick={() => resolveBatchAmbiguous(it.code, m.rowIndex)}>
+                                  <button className="secondary small" onClick={() => resolveBatchAmbiguous(it.key, m.rowIndex)}>
                                     Choisir
                                   </button>
                                 </td>
@@ -563,7 +620,7 @@ export default function GenerateTab({
                   )}
                   {it.statut === 'resolue' && it.expanded && it.values && (
                     <tr>
-                      <td colSpan={4}>
+                      <td colSpan={marcheRequise ? 5 : 4}>
                         <div className="field-grid">
                           {Object.entries(it.values).map(([variable, value]) => (
                             <div className="field" key={variable}>
@@ -571,7 +628,7 @@ export default function GenerateTab({
                               <input
                                 type="text"
                                 value={value}
-                                onChange={(e) => updateBatchValue(it.code, variable, e.target.value)}
+                                onChange={(e) => updateBatchValue(it.key, variable, e.target.value)}
                               />
                             </div>
                           ))}

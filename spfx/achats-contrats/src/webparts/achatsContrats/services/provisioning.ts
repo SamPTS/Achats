@@ -205,7 +205,7 @@ export function ensureProvisioned(): Promise<void> {
 // champ, provoquant une erreur SharePoint explicite ("Il n'existe pas de champ...") dès la
 // première lecture qui le sélectionne. Toute future ligne "await ensureField(...)" ajoutée dans
 // doProvision() doit s'accompagner d'un incrément de ce nombre.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function storageKey(): string {
   const webUrl = getSP().web.toUrl();
@@ -256,6 +256,10 @@ async function doProvision(): Promise<void> {
     await ensureField(() => ler.list.fields.addText('CheminStockage', { MaxLength: 500 }));
     await ensureField(() => ler.list.fields.addMultilineText('Colonnes', { NumberOfLines: 10, RichText: false }));
     await ensureField(() => ler.list.fields.addText('ColonneCodeSousSegment', { MaxLength: 255 }));
+    // Colonne "marché", utilisée avec ColonneCodeSousSegment pour désambiguïser la recherche lors
+    // de la génération d'un contrat (un même code sous-segment peut correspondre à plusieurs
+    // lignes selon le marché) — voir generateService.searchCode.
+    await ensureField(() => ler.list.fields.addText('ColonneMarche', { MaxLength: 255 }));
     await ensureField(() => ler.list.fields.addBoolean('EstActive'));
     await ensureField(() => ler.list.fields.addText('DeposePar', { MaxLength: 255 }));
     await ensureField(() => ler.list.fields.addNumber('NbLignes'));
