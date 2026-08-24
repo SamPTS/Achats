@@ -91,8 +91,11 @@ export default function GenerateTab({
       const premierUtilisable = t.find((x) => x.mappingComplet);
       if (premierUtilisable) setTemplateId(premierUtilisable.id);
       else if (t.length > 0) setTemplateId(t[0].id);
-      const active = c.find((x) => x.estActive);
-      if (active) setConditionsVersionId(active.id);
+      // Plus de sélecteur de fichier de conditions : l'onglet Conditions commerciales ne gère
+      // plus qu'un seul fichier "courant" (pas d'historique), donc rien à choisir ici — on utilise
+      // directement ce fichier (la version active, ou l'unique version restante à défaut).
+      const seul = c.find((x) => x.estActive) ?? c[0];
+      if (seul) setConditionsVersionId(seul.id);
     }, (e) => setError(logAndGetMessage(e, 'GenerateTab (chargement initial)')));
   }, []);
 
@@ -308,7 +311,8 @@ export default function GenerateTab({
     <div>
       <h1>Générer un contrat</h1>
       <p className="subtitle">
-        Sélectionnez un template et un fichier de conditions, saisissez le code sous-segment{marcheRequise ? ' et le marché' : ''}, relisez le formulaire pré-rempli puis téléchargez le contrat.
+        Sélectionnez un template, saisissez le code sous-segment{marcheRequise ? ' et le marché' : ''}, relisez le
+        formulaire pré-rempli puis téléchargez le contrat.
       </p>
 
       {error && <div className="alert error">{error}</div>}
@@ -355,23 +359,6 @@ export default function GenerateTab({
                 )}
               </div>
             )}
-          </div>
-          <div>
-            <label>Fichier de conditions commerciales</label>
-            <select
-              value={conditionsVersionId}
-              onChange={(e) => {
-                setConditionsVersionId(e.target.value);
-                resetSearch();
-              }}
-            >
-              <option value="">—</option>
-              {conditions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nomFichier} {c.estActive ? '(active)' : ''}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -477,8 +464,8 @@ export default function GenerateTab({
         )}
         {templateId && !conditionsVersionId && (
           <div className="alert error mt1">
-            Sélectionnez un fichier de conditions commerciales pour pouvoir rechercher un code — ou déposez-en un dans
-            l&apos;onglet Conditions commerciales si aucun n&apos;est encore disponible.
+            Aucun fichier de conditions commerciales configuré — déposez-en un dans l&apos;onglet Conditions
+            commerciales avant de pouvoir générer un contrat.
           </div>
         )}
 
