@@ -105,3 +105,55 @@ export async function deleteByServerRelativeUrl(serverRelativeUrl: string): Prom
     // l'enregistrement plutôt que de bloquer sur un fichier orphelin.
   }
 }
+
+/** Extrait l'identifiant "sourcedoc" d'un lien de partage SharePoint moderne (menu "Copier le
+ * lien"), de la forme ".../_layouts/15/Doc.aspx?sourcedoc=%7BGUID%7D&...". Ce type de lien ne
+ * pointe pas directement vers le chemin du fichier (impossible à résoudre via son URL seule) mais
+ * référence le document par son identifiant unique, résolvable via sp.web.getFileById. Retourne
+ * null si le lien n'est pas de ce format (URL directe vers le fichier, ou simple chemin). */
+function extractSourceDocId(input: string): string | null {
+  try {
+    const raw = new URL(input).searchParams.get('sourcedoc');
+    return raw ? raw.replace(/[{}]/g, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Convertit une URL absolue en chemin relatif au serveur ; laisse un chemin déjà relatif tel
+ * quel (après décodage des caractères encodés type %20). */
+function toServerRelativePath(input: string): string {
+  try {
+    return decodeURIComponent(new URL(input).pathname);
+  } catch {
+    return decodeURIComponent(input);
+  }
+}
+
+/** Résout une référence vers un fichier EXISTANT ailleurs sur le site — pour lier un fichier de
+ * conditions commerciales déjà en place plutôt que d'en déposer une copie (voir
+ * conditionsService.linkExternalConditions). Accepte soit un lien de partage SharePoint moderne
+ * ("Copier le lien", contenant sourcedoc=<GUID>), soit une URL absolue ou un chemin relatif
+ * pointant directement vers le fichier. Le fichier n'est jamais copié : seul son chemin est
+ * enregistré, exactement comme un cheminStockage classique — tout le reste (téléchargement,
+ * détection de modification via resyncIfFileChanged) fonctionne ensuite de façon identique. */
+export async function resolveFileReference(input: string): Promise<{ serverRelativeUrl: string; nom: string }> {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('Lien ou chemin du fichier requis.');
+
+  const sp = getSP();
+  const sourceDocId = extractSourceDocId(trimmed);
+  try {
+    const info = (await (sourceDocId
+      ? sp.web.getFileById(sourceDocId)
+      : sp.web.getFileByServerRelativePath(toServerRelativePath(trimmed))
+    ).select('ServerRelativeUrl', 'Name')()) as { ServerRelativeUrl: string; Name: string };
+    return { serverRelativeUrl: info.ServerRelativeUrl, nom: info.Name };
+  } catch (e) {
+    throw new Error(
+      "Fichier introuvable à partir de ce lien : vérifiez qu'il pointe bien vers le fichier lui-même " +
+        '(ouvrez-le dans SharePoint puis utilisez "Copier le lien", ou collez l\'adresse de la page du ' +
+        `fichier) et que vous y avez accès. (${e instanceof Error ? e.message : String(e)})`,
+    );
+  }
+}

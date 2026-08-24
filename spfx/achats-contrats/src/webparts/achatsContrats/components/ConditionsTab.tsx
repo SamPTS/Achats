@@ -18,6 +18,11 @@ export default function ConditionsTab(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // --- Lien vers un fichier existant ailleurs sur le site (alternative au dépôt classique) ---
+  const [showLink, setShowLink] = useState(false);
+  const [linkRef, setLinkRef] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
+
   async function refresh(): Promise<void> {
     const list = await conditionsService.listConditions();
     // Efface une éventuelle erreur d'un rechargement précédent : sans ça, une erreur transitoire
@@ -46,6 +51,29 @@ export default function ConditionsTab(): JSX.Element {
       setError(logAndGetMessage(e, 'ConditionsTab.handleFile (dépôt d\'un fichier)'));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleLink(): Promise<void> {
+    if (!linkRef.trim()) return;
+    setError(null);
+    setInfo(null);
+    setLinkBusy(true);
+    try {
+      const created = await conditionsService.linkExternalConditions(linkRef, deposePar);
+      const warn =
+        created.doublonsDetectes > 0 ? ` ⚠ ${created.doublonsDetectes} code(s) sous-segment en doublon détecté(s).` : '';
+      setInfo(
+        `Fichier lié : ${created.nomFichier} — ${created.nbLignes} lignes, ${created.nbColonnes} colonnes.${warn} ` +
+          'Modifiez-le directement à son emplacement d\'origine : les changements seront pris en compte automatiquement.',
+      );
+      setLinkRef('');
+      setShowLink(false);
+      await refresh();
+    } catch (e) {
+      setError(logAndGetMessage(e, 'ConditionsTab.handleLink (lien vers un fichier existant)'));
+    } finally {
+      setLinkBusy(false);
     }
   }
 
@@ -110,6 +138,36 @@ export default function ConditionsTab(): JSX.Element {
               e.target.value = '';
             }}
           />
+        </div>
+        <div className="mt1">
+          <button type="button" className="secondary" onClick={() => setShowLink((v) => !v)}>
+            {showLink ? 'Annuler' : "Lier un fichier existant plutôt qu'en déposer un"}
+          </button>
+          {showLink && (
+            <div className="mt1">
+              <p className="muted small">
+                Plutôt qu&apos;une copie déposée ici, référence un fichier Excel déjà présent ailleurs sur le site :
+                vous pourrez continuer à le modifier directement à son emplacement d&apos;origine, l&apos;application
+                relira automatiquement son contenu à jour à chaque recherche/génération — sans jamais avoir besoin
+                de le redéposer.
+              </p>
+              <div className="form-row">
+                <div style={{ flex: 1 }}>
+                  <label>Lien du fichier (menu SharePoint « Copier le lien », ou adresse de la page du fichier)</label>
+                  <input
+                    type="text"
+                    value={linkRef}
+                    onChange={(e) => setLinkRef(e.target.value)}
+                    placeholder="https://…/Documents partagés/Conditions.xlsx"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <button disabled={linkBusy || !linkRef.trim()} onClick={handleLink}>
+                  {linkBusy ? 'Liaison…' : 'Lier ce fichier'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -199,9 +257,12 @@ function VersionRow({
   }
 
   async function remove(): Promise<void> {
+    const consequenceFichier = version.externe
+      ? "seul le lien sera retiré : le fichier d'origine, ailleurs sur le site, ne sera pas supprimé."
+      : 'le fichier déposé sera également supprimé.';
     if (
       !confirm(
-        `Supprimer définitivement la version "${version.nomFichier}" (${fmtDate(version.dateDepot)}) ? Cette action est irréversible : le fichier déposé sera également supprimé.`,
+        `Supprimer définitivement la version "${version.nomFichier}" (${fmtDate(version.dateDepot)}) ? Cette action est irréversible : ${consequenceFichier}`,
       )
     )
       return;
@@ -231,7 +292,12 @@ function VersionRow({
       <td>
         <a href={version.cheminStockage} target="_blank" rel="noreferrer">
           {version.nomFichier}
-        </a>
+        </a>{' '}
+        {version.externe && (
+          <span className="badge muted" title="Fichier référencé à son emplacement d'origine, jamais copié — modifiable directement là-bas.">
+            Lien externe
+          </span>
+        )}
         {version.deposePar && <div className="muted small">par {version.deposePar}</div>}
       </td>
       <td>{fmtDate(version.dateDepot)}</td>

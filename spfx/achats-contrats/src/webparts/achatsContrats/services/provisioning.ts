@@ -256,6 +256,11 @@ async function doProvision(): Promise<void> {
     // du fichier à chaque lecture pour détecter une édition faite directement dans la
     // bibliothèque, hors dépôt via l'application (voir resyncIfFileChanged, conditionsService.ts).
     await ensureField(() => ler.list.fields.addText('FichierModifieLe', { MaxLength: 60 }));
+    // true si cette version référence un fichier existant ailleurs sur le site (lié via son URL)
+    // plutôt qu'un fichier déposé dans ConditionsFichiers — voir linkExternalConditions. Change le
+    // comportement de la suppression (le fichier d'origine n'est jamais supprimé, contrairement à
+    // un dépôt classique) et l'affichage (badge "Lien externe").
+    await ensureField(() => ler.list.fields.addBoolean('Externe'));
   }
 
   // --- TemplatesContrats ---

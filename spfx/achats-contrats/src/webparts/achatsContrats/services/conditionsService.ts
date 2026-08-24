@@ -2,7 +2,14 @@ import '@pnp/sp/lists';
 import '@pnp/sp/items';
 import { getSP } from './spClient';
 import { ensureProvisioned, retryOnce, withListRecovery, isNotFoundError, LISTS, LIBRARIES } from './provisioning';
-import { buildStoredFilename, uploadToLibrary, downloadFromServerRelativeUrl, deleteByServerRelativeUrl, getFileModified } from './storage';
+import {
+  buildStoredFilename,
+  uploadToLibrary,
+  downloadFromServerRelativeUrl,
+  deleteByServerRelativeUrl,
+  getFileModified,
+  resolveFileReference,
+} from './storage';
 import { parseConditionsFile, findDuplicateCodes } from './excel';
 import { LruCache } from './lruCache';
 import { odataEscape } from './odata';
@@ -24,6 +31,7 @@ interface ConditionsVersionItem {
   DoublonsDetectes: number;
   Archive: boolean;
   FichierModifieLe: string | null;
+  Externe: boolean;
 }
 
 const SELECT_FIELDS = [
@@ -41,6 +49,7 @@ const SELECT_FIELDS = [
   'DoublonsDetectes',
   'Archive',
   'FichierModifieLe',
+  'Externe',
 ];
 
 function toModel(item: ConditionsVersionItem): ConditionsVersion {
@@ -64,6 +73,7 @@ function toModel(item: ConditionsVersionItem): ConditionsVersion {
     nbColonnes: item.NbColonnes ?? 0,
     doublonsDetectes: item.DoublonsDetectes ?? 0,
     archive: !!item.Archive,
+    externe: !!item.Externe,
   };
 }
 
@@ -260,6 +270,76 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
   return toModel(created);
 }
 
+/** Lie un fichier de conditions EXISTANT ailleurs sur le site plutôt que d'en déposer une copie
+ * dans "ConditionsFichiers" (voir uploadConditions) : le fichier n'est jamais copié, seule une
+ * référence à son emplacement d'origine est enregistrée (Externe: true). Il peut ensuite être
+ * édité directement là où il se trouve — la resynchronisation automatique (resyncIfFileChanged,
+ * inchangée, déjà agnostique de l'emplacement du fichier) recalcule les métadonnées à chaque
+ * lecture si le contenu a changé, sans jamais nécessiter de nouveau dépôt. Coexiste avec les
+ * versions déposées classiquement : les deux mécanismes utilisent la même liste et la même règle
+ * "une seule version active à la fois". */
+export async function linkExternalConditions(reference: string, deposePar: string): Promise<ConditionsVersion> {
+  await ensureProvisioned();
+  const { serverRelativeUrl, nom } = await resolveFileReference(reference);
+  if (!/\.xlsx$/i.test(nom)) {
+    throw new Error(`Seuls les fichiers .xlsx sont acceptés (fichier lié : "${nom}").`);
+  }
+
+  const buffer = await downloadFromServerRelativeUrl(serverRelativeUrl);
+  const parsed = await parseConditionsFile(buffer);
+  const doublons = parsed.colonneCodeCandidate ? findDuplicateCodes(parsed.rows, parsed.colonneCodeCandidate) : 0;
+  const fichierModifieLe = await getFileModified(serverRelativeUrl);
+
+  const existing = (await list().items.select('Id').filter('Archive eq 0').top(1)()) as unknown[];
+  const estActive = existing.length === 0;
+
+  const iar = await list().items.add({
+    Title: nom,
+    NomFichier: nom,
+    DateDepot: new Date().toISOString(),
+    CheminStockage: serverRelativeUrl,
+    Colonnes: JSON.stringify(parsed.colonnes),
+    ColonneCodeSousSegment: parsed.colonneCodeCandidate,
+    EstActive: estActive,
+    DeposePar: deposePar || null,
+    NbLignes: parsed.rows.length,
+    NbLignesVides: parsed.nbLignesVides,
+    NbColonnes: parsed.colonnes.length,
+    DoublonsDetectes: doublons,
+    Archive: false,
+    FichierModifieLe: fichierModifieLe,
+    Externe: true,
+  });
+
+  // Voir uploadConditions pour le même mécanisme (réponse d'ajout vide/incomplète, recherche par
+  // CheminStockage). Ici, CheminStockage n'est pas garanti unique par minute (le fichier lié
+  // existait déjà, à un emplacement qui ne change pas) — mais reste unique parmi les versions non
+  // archivées à un instant donné (un même fichier ne peut pas être lié deux fois sans le
+  // dé-référencer d'abord), donc la même stratégie de récupération s'applique sans risque de
+  // doublon.
+  const newId =
+    iar && typeof iar.Id === 'number'
+      ? iar.Id
+      : await (async () => {
+          const found = (await retryOnce(async () => {
+            const rows = (await list()
+              .items.select('Id')
+              .filter(`CheminStockage eq '${odataEscape(serverRelativeUrl)}' and Archive eq 0`)
+              .top(1)()) as { Id: number }[];
+            if (rows.length === 0) throw new Error('Version introuvable après création (réponse vide).');
+            return rows[0];
+          })) as { Id: number };
+          return found.Id;
+        })();
+
+  if (estActive) await reconcileSingleActive();
+
+  const created = (await retryOnce(() =>
+    list().items.getById(newId).select(...SELECT_FIELDS)(),
+  )) as ConditionsVersionItem;
+  return toModel(created);
+}
+
 export async function setConditionsCodeColumn(id: string, colonneCodeSousSegment: string): Promise<void> {
   await ensureProvisioned();
   const version = await getConditionsVersion(id);
@@ -317,7 +397,9 @@ export async function archiveConditions(id: string): Promise<void> {
 }
 
 /** Suppression définitive (contrairement à archiveConditions, qui ne fait que masquer la
- * version) : supprime aussi le fichier Excel déposé. Refusée pour la version active, pour la
+ * version) : supprime aussi le fichier Excel déposé — SAUF pour un lien externe (version.externe),
+ * où le fichier ne nous appartient pas (il existait déjà ailleurs sur le site avant d'être lié) :
+ * seul le lien est retiré, jamais le fichier d'origine. Refusée pour la version active, pour la
  * même raison que l'archivage. */
 export async function deleteConditions(id: string): Promise<void> {
   await ensureProvisioned();
@@ -326,6 +408,8 @@ export async function deleteConditions(id: string): Promise<void> {
   if (version.estActive) {
     throw new Error("Impossible de supprimer la version active : activez une autre version au préalable.");
   }
-  await deleteByServerRelativeUrl(version.cheminStockage);
+  if (!version.externe) {
+    await deleteByServerRelativeUrl(version.cheminStockage);
+  }
   await list().items.getById(Number(id)).delete();
 }

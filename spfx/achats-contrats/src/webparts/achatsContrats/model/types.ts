@@ -10,7 +10,9 @@ export interface ConditionsVersion {
   id: string;
   nomFichier: string;
   dateDepot: string; // ISO 8601
-  /** URL relative au serveur du fichier dans la bibliothèque "ConditionsFichiers". */
+  /** URL relative au serveur du fichier — dans la bibliothèque "ConditionsFichiers" pour un dépôt
+   * classique, ou vers son emplacement d'origine ailleurs sur le site pour un lien externe (voir
+   * externe ci-dessous). */
   cheminStockage: string;
   colonnes: string[];
   colonneCodeSousSegment: string | null;
@@ -21,6 +23,13 @@ export interface ConditionsVersion {
   nbColonnes: number;
   doublonsDetectes: number;
   archive: boolean;
+  /** true si cette version référence un fichier existant ailleurs sur le site (lié via son URL,
+   * jamais copié) plutôt qu'un fichier déposé dans "ConditionsFichiers". Le fichier peut alors être
+   * édité directement à son emplacement d'origine — la resynchronisation automatique (voir
+   * conditionsService.resyncIfFileChanged) recalcule les métadonnées à chaque lecture si le
+   * fichier a changé, sans jamais nécessiter de nouveau dépôt. Suppression : seul le lien est
+   * retiré, le fichier d'origine n'est jamais supprimé (voir conditionsService.deleteConditions). */
+  externe: boolean;
 }
 
 export type MappingStatut = 'mappee' | 'libre' | 'manquante';
