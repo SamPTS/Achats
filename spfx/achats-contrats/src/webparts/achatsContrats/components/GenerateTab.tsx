@@ -4,7 +4,7 @@ import { Icon } from '@fluentui/react/lib/Icon';
 import * as generateService from '../services/generateService';
 import * as conditionsService from '../services/conditionsService';
 import { logAndGetMessage } from '../services/errorLog';
-import type { ConditionsVersion, GenerateTemplateOption, SearchMatch } from '../model/types';
+import type { GenerateTemplateOption, SearchMatch } from '../model/types';
 
 interface BatchItem {
   key: string; // le code lui-même — identifiant stable pour une ligne du lot
@@ -39,7 +39,6 @@ export default function GenerateTab({
   onGoToTemplates?: () => void;
 }): JSX.Element {
   const [templates, setTemplates] = useState<GenerateTemplateOption[]>([]);
-  const [conditions, setConditions] = useState<ConditionsVersion[]>([]);
   const [templateId, setTemplateId] = useState('');
   const [conditionsVersionId, setConditionsVersionId] = useState('');
   const [code, setCode] = useState('');
@@ -69,7 +68,6 @@ export default function GenerateTab({
   useEffect(() => {
     Promise.all([generateService.listGenerableTemplates(), conditionsService.listConditions()]).then(([t, c]) => {
       setTemplates(t);
-      setConditions(c);
       // Préférer un template déjà utilisable ; à défaut, laisser le premier sélectionné pour que
       // l'utilisateur voie tout de suite pourquoi il bloque (mapping incomplet).
       const premierUtilisable = t.find((x) => x.mappingComplet);
