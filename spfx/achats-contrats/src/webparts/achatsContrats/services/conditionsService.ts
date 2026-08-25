@@ -23,7 +23,6 @@ interface ConditionsVersionItem {
   CheminStockage: string;
   Colonnes: string; // JSON.stringify(string[])
   ColonneCodeSousSegment: string | null;
-  ColonneMarche: string | null;
   EstActive: boolean;
   DeposePar: string | null;
   NbLignes: number;
@@ -42,7 +41,6 @@ const SELECT_FIELDS = [
   'CheminStockage',
   'Colonnes',
   'ColonneCodeSousSegment',
-  'ColonneMarche',
   'EstActive',
   'DeposePar',
   'NbLignes',
@@ -68,7 +66,6 @@ function toModel(item: ConditionsVersionItem): ConditionsVersion {
     cheminStockage: item.CheminStockage,
     colonnes,
     colonneCodeSousSegment: item.ColonneCodeSousSegment ?? null,
-    colonneMarche: item.ColonneMarche ?? null,
     estActive: !!item.EstActive,
     deposePar: item.DeposePar ?? null,
     nbLignes: item.NbLignes ?? 0,
@@ -139,12 +136,9 @@ async function resyncIfFileChanged(item: ConditionsVersionItem): Promise<Conditi
       item.ColonneCodeSousSegment && parsed.colonnes.includes(item.ColonneCodeSousSegment)
         ? item.ColonneCodeSousSegment
         : parsed.colonneCodeCandidate;
-    const colonneMarche =
-      item.ColonneMarche && parsed.colonnes.includes(item.ColonneMarche) ? item.ColonneMarche : parsed.colonneMarcheCandidate;
     const patch = {
       Colonnes: JSON.stringify(parsed.colonnes),
       ColonneCodeSousSegment: colonneCodeSousSegment,
-      ColonneMarche: colonneMarche,
       NbLignes: parsed.rows.length,
       NbLignesVides: parsed.nbLignesVides,
       NbColonnes: parsed.colonnes.length,
@@ -232,7 +226,6 @@ export async function uploadConditions(file: File, deposePar: string): Promise<C
     CheminStockage: cheminStockage,
     Colonnes: JSON.stringify(parsed.colonnes),
     ColonneCodeSousSegment: parsed.colonneCodeCandidate,
-    ColonneMarche: parsed.colonneMarcheCandidate,
     EstActive: estActive,
     DeposePar: deposePar || null,
     NbLignes: parsed.rows.length,
@@ -307,7 +300,6 @@ export async function linkExternalConditions(reference: string, deposePar: strin
     CheminStockage: serverRelativeUrl,
     Colonnes: JSON.stringify(parsed.colonnes),
     ColonneCodeSousSegment: parsed.colonneCodeCandidate,
-    ColonneMarche: parsed.colonneMarcheCandidate,
     EstActive: estActive,
     DeposePar: deposePar || null,
     NbLignes: parsed.rows.length,
@@ -356,16 +348,6 @@ export async function setConditionsCodeColumn(id: string, colonneCodeSousSegment
     throw new Error('Colonne inconnue dans ce fichier.');
   }
   await list().items.getById(Number(id)).update({ ColonneCodeSousSegment: colonneCodeSousSegment || null });
-}
-
-export async function setConditionsMarcheColumn(id: string, colonneMarche: string): Promise<void> {
-  await ensureProvisioned();
-  const version = await getConditionsVersion(id);
-  if (!version) throw new Error('Version introuvable.');
-  if (colonneMarche && !version.colonnes.includes(colonneMarche)) {
-    throw new Error('Colonne inconnue dans ce fichier.');
-  }
-  await list().items.getById(Number(id)).update({ ColonneMarche: colonneMarche || null });
 }
 
 /** SharePoint n'offre aucune transaction entre plusieurs écritures : deux appels concurrents (deux

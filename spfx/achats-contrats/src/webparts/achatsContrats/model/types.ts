@@ -16,11 +16,6 @@ export interface ConditionsVersion {
   cheminStockage: string;
   colonnes: string[];
   colonneCodeSousSegment: string | null;
-  /** Colonne "marché", utilisée avec colonneCodeSousSegment pour désambiguïser la recherche
-   * (un même code sous-segment peut correspondre à plusieurs lignes selon le marché) — voir
-   * generateService.searchCode. null si non détectée/désignée : dans ce cas la recherche se fait
-   * uniquement par code sous-segment, comme avant l'introduction du marché. */
-  colonneMarche: string | null;
   estActive: boolean;
   deposePar: string | null;
   nbLignes: number;

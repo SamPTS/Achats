@@ -22,7 +22,7 @@ l'application prérempli le contrat à partir du fichier de conditions à jour.
 |---|---|---|
 | Gestionnaire conditions | Tient à jour le fichier Excel des conditions commerciales négociées. | 🟡 Propriétaires |
 | Gestionnaire templates | Dépose les modèles Word et fait correspondre leurs variables aux colonnes du fichier de conditions. | 🟡 Propriétaires |
-| Chargé(e) d'achats | Génère les contrats au quotidien à partir d'un code sous-segment (et d'un marché). | 🟢 Membres |
+| Chargé(e) d'achats | Génère les contrats au quotidien à partir d'un code sous-segment. | 🟢 Membres |
 
 ## 1 · Conditions commerciales
 
@@ -52,23 +52,15 @@ badge « Lien externe » distingue les deux cas.*
 > historique des conditions commerciales doit le faire en dehors de l'outil (ex. archivage manuel du fichier avant
 > remplacement).
 
-### Désignation des colonnes Code sous-segment et Marché
+### Désignation de la colonne Code sous-segment
 
-Deux colonnes du fichier servent de clé de recherche pour la génération de contrats :
-
-| Colonne | Obligatoire | Rôle |
-|---|---|---|
-| **Code sous-segment** | Oui | Identifie la ligne de conditions à utiliser pour un contrat. |
-| **Marché** | Non | Désambiguïse les cas où un même code sous-segment existe pour plusieurs marchés (pays, zones…). |
+Cette colonne du fichier sert de clé de recherche pour la génération de contrats : elle identifie la ligne de
+conditions à utiliser pour un contrat donné.
 
 ![Sélection de la colonne Code sous-segment dans la liste des colonnes du fichier](images/conditions-colonne.png)
 
 *Détection automatique à l'import quand l'intitulé de colonne est reconnaissable ; sinon désignation manuelle via le
 sélecteur.*
-
-> 💡 **Règle métier :** si aucune colonne **Marché** n'est désignée, la recherche à la génération se fait
-> uniquement par code sous-segment — c'est le comportement historique de l'application, conservé pour les fichiers
-> de conditions qui n'ont pas de notion de marché.
 
 ### Détection automatique des modifications
 
@@ -128,16 +120,13 @@ conditions, relire les valeurs, télécharger.
 
 ### Règle de recherche
 
-![Recherche d'un contrat par template, code sous-segment et marché](images/generate-search.png)
+![Recherche d'un contrat par template et code sous-segment](images/generate-search.png)
 
-*Le champ **Marché** n'apparaît que si une colonne marché est désignée sur le fichier de conditions actif.*
-
-- La recherche croise le **code sous-segment** saisi (et le **marché** choisi, si applicable) avec les lignes du
-  fichier de conditions actif.
+- La recherche croise le **code sous-segment** saisi avec les lignes du fichier de conditions actif.
 - Si une seule ligne correspond, le formulaire de relecture s'affiche directement, préremplie selon le mapping du
   template choisi.
-- Si **plusieurs lignes** correspondent (typiquement : plusieurs marchés pour un même code, et aucun marché
-  précisé), un tableau de choix s'affiche pour que l'utilisateur sélectionne la bonne ligne avant la relecture.
+- Si **plusieurs lignes** correspondent (le même code apparaît plus d'une fois dans le fichier), un tableau de choix
+  s'affiche pour que l'utilisateur sélectionne la bonne ligne avant la relecture.
 - Si **aucune ligne** ne correspond, l'application l'indique explicitement plutôt que de générer un contrat avec
   des valeurs vides.
 
@@ -154,9 +143,9 @@ conditions, relire les valeurs, télécharger.
 Quand plusieurs contrats doivent être générés pour le même template, le mode lot évite de répéter la recherche pour
 chaque code.
 
-![Mode lot : plusieurs lignes code + marché, résultats de recherche et téléchargement en ZIP](images/generate-batch.png)
+![Mode lot : plusieurs lignes de codes, résultats de recherche et téléchargement en ZIP](images/generate-batch.png)
 
-*Chaque ligne du lot est une paire indépendante **code + marché**, résolue séparément.*
+*Chaque ligne du lot est un **code** indépendant, résolu séparément.*
 
 - Chaque ligne saisie est recherchée indépendamment, avec le même comportement qu'une recherche unique (résolu,
   ambigu, ou introuvable).

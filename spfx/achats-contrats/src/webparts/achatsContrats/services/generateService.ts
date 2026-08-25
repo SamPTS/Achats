@@ -52,12 +52,7 @@ export async function listGenerableTemplates(): Promise<GenerateTemplateOption[]
     .sort((a, b) => a.libelle.localeCompare(b.libelle));
 }
 
-/** marche est requis dès que le fichier de conditions actif désigne une colonne "marché" (voir
- * ConditionsTab) : la recherche filtre alors sur le code sous-segment ET le marché correspondant
- * sur la même ligne, pour désambiguïser les cas où un même code apparaît pour plusieurs marchés.
- * Si aucune colonne marché n'est désignée pour ce fichier, marche est ignoré et la recherche se
- * comporte comme avant (uniquement par code sous-segment). */
-export async function searchCode(conditionsVersionId: string, code: string, marche?: string): Promise<SearchMatch[]> {
+export async function searchCode(conditionsVersionId: string, code: string): Promise<SearchMatch[]> {
   const version = await getConditionsVersion(conditionsVersionId);
   if (!version) throw new Error('Fichier de conditions introuvable.');
   if (!version.colonneCodeSousSegment) {
@@ -66,16 +61,10 @@ export async function searchCode(conditionsVersionId: string, code: string, marc
   const { rows } = await readConditionsRows(version);
   const normalizedCode = code.trim().toLowerCase();
   const colonneCode = version.colonneCodeSousSegment;
-  const colonneMarche = version.colonneMarche;
-  const normalizedMarche = colonneMarche ? (marche ?? '').trim().toLowerCase() : null;
-  if (colonneMarche && !normalizedMarche) {
-    throw new Error('Le marché est requis pour ce fichier de conditions.');
-  }
 
   const matches: SearchMatch[] = [];
   rows.forEach((row, idx) => {
     if ((row[colonneCode] ?? '').trim().toLowerCase() !== normalizedCode) return;
-    if (colonneMarche && (row[colonneMarche] ?? '').trim().toLowerCase() !== normalizedMarche) return;
     const previewKeys = Object.keys(row).slice(0, 5);
     const preview: Record<string, string> = {};
     for (const k of previewKeys) preview[k] = row[k];
@@ -83,22 +72,6 @@ export async function searchCode(conditionsVersionId: string, code: string, marc
   });
   if (matches.length === 0) throw new Error('Aucune ligne correspondante.');
   return matches;
-}
-
-/** Valeurs distinctes de la colonne "marché" du fichier de conditions donné, pour peupler le
- * sélecteur de marché de l'écran de génération — tableau vide si aucune colonne marché n'est
- * désignée pour ce fichier (le sélecteur reste alors masqué côté UI). */
-export async function listMarches(conditionsVersionId: string): Promise<string[]> {
-  const version = await getConditionsVersion(conditionsVersionId);
-  if (!version || !version.colonneMarche) return [];
-  const { rows } = await readConditionsRows(version);
-  const colonne = version.colonneMarche;
-  const set = new Set<string>();
-  for (const row of rows) {
-    const v = (row[colonne] ?? '').trim();
-    if (v) set.add(v);
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
 export interface MappedValuesResult {

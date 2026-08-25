@@ -37,12 +37,6 @@ export default function ConditionsTab(): JSX.Element {
   const [col, setCol] = useState('');
   const [colBusy, setColBusy] = useState(false);
 
-  // --- Modification de la colonne "marché" du fichier courant (utilisée avec le code
-  // sous-segment pour désambiguïser la recherche lors de la génération d'un contrat) ---
-  const [choosingMarche, setChoosingMarche] = useState(false);
-  const [marcheCol, setMarcheCol] = useState('');
-  const [marcheBusy, setMarcheBusy] = useState(false);
-
   async function refresh(): Promise<void> {
     const list = await conditionsService.listConditions();
     // Efface une éventuelle erreur d'un rechargement précédent : sans ça, une erreur transitoire
@@ -56,7 +50,6 @@ export default function ConditionsTab(): JSX.Element {
     const current = list.length === 0 ? null : list.reduce((a, b) => (a.dateDepot > b.dateDepot ? a : b));
     setVersion(current);
     setCol(current?.colonneCodeSousSegment ?? '');
-    setMarcheCol(current?.colonneMarche ?? '');
   }
 
   useEffect(() => {
@@ -117,21 +110,6 @@ export default function ConditionsTab(): JSX.Element {
       setError(logAndGetMessage(e, 'ConditionsTab.saveCol'));
     } finally {
       setColBusy(false);
-    }
-  }
-
-  async function saveMarcheCol(): Promise<void> {
-    if (!version) return;
-    setMarcheBusy(true);
-    setError(null);
-    try {
-      await conditionsService.setConditionsMarcheColumn(version.id, marcheCol);
-      setChoosingMarche(false);
-      await refresh();
-    } catch (e) {
-      setError(logAndGetMessage(e, 'ConditionsTab.saveMarcheCol'));
-    } finally {
-      setMarcheBusy(false);
     }
   }
 
@@ -333,50 +311,6 @@ export default function ConditionsTab(): JSX.Element {
               ) : (
                 <button className="danger" onClick={() => setChoosingCol(true)}>
                   À désigner
-                </button>
-              )}
-            </div>
-            <div>
-              <label>Marché</label>
-              {choosingMarche ? (
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <select
-                    value={marcheCol}
-                    onChange={(e) => setMarcheCol(e.target.value)}
-                    title={marcheCol}
-                    style={{ maxWidth: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    <option value="">—</option>
-                    {version.colonnes.map((c) => (
-                      <option key={c} value={c} title={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  <button disabled={marcheBusy || !marcheCol} onClick={saveMarcheCol}>
-                    OK
-                  </button>
-                </div>
-              ) : version.colonneMarche ? (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', maxWidth: '100%' }}>
-                  <span
-                    title={version.colonneMarche}
-                    style={{ maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                  >
-                    {version.colonneMarche}
-                  </span>{' '}
-                  <button
-                    className="icon-btn"
-                    title="Modifier la colonne"
-                    aria-label="Modifier la colonne marché"
-                    onClick={() => setChoosingMarche(true)}
-                  >
-                    <Icon iconName="Edit" />
-                  </button>
-                </span>
-              ) : (
-                <button className="secondary" onClick={() => setChoosingMarche(true)}>
-                  Désigner (optionnel)
                 </button>
               )}
             </div>

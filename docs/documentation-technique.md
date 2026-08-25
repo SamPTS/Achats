@@ -89,7 +89,7 @@ uuid v4.
 
 | Type | Champs / rôle |
 |---|---|
-| `ConditionsVersion` | `id, nomFichier, dateDepot, cheminStockage, colonnes[], colonneCodeSousSegment, colonneMarche, estActive, deposePar, nbLignes, nbLignesVides, nbColonnes, doublonsDetectes, archive, externe` — `externe` marque un fichier lié (jamais copié). |
+| `ConditionsVersion` | `id, nomFichier, dateDepot, cheminStockage, colonnes[], colonneCodeSousSegment, estActive, deposePar, nbLignes, nbLignesVides, nbColonnes, doublonsDetectes, archive, externe` — `externe` marque un fichier lié (jamais copié). |
 | `MappingStatut` | `'mappee' \| 'libre' \| 'manquante'` |
 | `MappingLine` | `variable, colonneCorrespondante, statut, colonneIntrouvable?` — `colonneIntrouvable` calculé côté client. |
 | `Template` | `id, groupId, libelle, departement, dateDepot, version, nomFichier, cheminStockage, variables[], deposePar, archive, mappings[], statutMapping` (`'complet'\|'incomplet'\|'absent'`) |
@@ -121,17 +121,16 @@ seul indicateur visuel de la distinction dépôt/lien.*
 
 ### Détection des colonnes
 
-Réalisée dans `excel.ts` (`parseConditionsFile`), qui retourne `colonneCodeCandidate`/`colonneMarcheCandidate` par
-heuristique de libellés (`CODE_HEADER_HINTS`, `MARCHE_HEADER_HINTS` + regex de repli), avec `shortestMatch`
-préférant l'en-tête le plus court en cas d'ambiguïté (pour éviter de matcher un texte d'aide long contenant
-accidentellement le mot recherché). `setConditionsCodeColumn` / `setConditionsMarcheColumn` permettent une
-désignation manuelle, validée contre `version.colonnes`.
+Réalisée dans `excel.ts` (`parseConditionsFile`), qui retourne `colonneCodeCandidate` par heuristique de libellés
+(`CODE_HEADER_HINTS` + regex de repli), avec `shortestMatch` préférant l'en-tête le plus court en cas d'ambiguïté
+(pour éviter de matcher un texte d'aide long contenant accidentellement le mot recherché).
+`setConditionsCodeColumn` permet une désignation manuelle, validée contre `version.colonnes`.
 
 ### Resynchronisation automatique
 
 `resyncIfFileChanged(item)` compare `FichierModifieLe` (stocké) à la valeur courante lue via `getFileModified`. Si
-différente : retélécharge et reparse le fichier, recalcule `Colonnes / ColonneCodeSousSegment / ColonneMarche /
-NbLignes / NbLignesVides / NbColonnes / DoublonsDetectes / FichierModifieLe`, invalide `rowsCache`, et persiste via
+différente : retélécharge et reparse le fichier, recalcule `Colonnes / ColonneCodeSousSegment / NbLignes /
+NbLignesVides / NbColonnes / DoublonsDetectes / FichierModifieLe`, invalide `rowsCache`, et persiste via
 `list().items.getById(item.Id).update(patch)`. Déclenché à chaque `getConditionsVersion(id)`. En cas d'échec de
 resync, l'élément d'origine (potentiellement périmé) est retourné sans bloquer l'appelant.
 
@@ -181,11 +180,9 @@ lignes de mapping `manquante` pour les variables apparues, supprime celles des v
 
 ## Service de génération
 
-`generateService.ts`. `searchCode(conditionsVersionId, code, marche?)` recherche dans les lignes du fichier de
-conditions (`readConditionsRows`) par égalité insensible à la casse/aux espaces sur `colonneCodeSousSegment` ; si le
-fichier désigne une `colonneMarche`, filtre en plus sur le marché (alors obligatoire — sinon erreur explicite).
-Retourne un tableau de `SearchMatch` (peut contenir plusieurs lignes ambiguës). `listMarches(conditionsVersionId)`
-liste les valeurs distinctes triées de la colonne marché, pour peupler le sélecteur.
+`generateService.ts`. `searchCode(conditionsVersionId, code)` recherche dans les lignes du fichier de conditions
+(`readConditionsRows`) par égalité insensible à la casse/aux espaces sur `colonneCodeSousSegment`. Retourne un
+tableau de `SearchMatch` (peut contenir plusieurs lignes ambiguës si le code apparaît plusieurs fois).
 
 `getMappedValues(conditionsVersionId, templateId, rowIndex)` résout, pour chaque `MappingLine` du template, la
 valeur de la colonne correspondante sur la ligne choisie (convention « zéro interprétation » : colonne vide → champ

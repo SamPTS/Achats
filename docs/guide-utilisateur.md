@@ -11,7 +11,7 @@
 - [1 · Conditions commerciales](#1--conditions-commerciales)
   - [Consulter le fichier courant](#consulter-le-fichier-courant)
   - [Déposer ou lier un fichier](#déposer-ou-lier-un-fichier)
-  - [Désigner les colonnes Code sous-segment et Marché](#désigner-les-colonnes-code-sous-segment-et-marché)
+  - [Désigner la colonne Code sous-segment](#désigner-la-colonne-code-sous-segment)
 - [2 · Templates de contrats](#2--templates-de-contrats)
   - [Déposer un template](#déposer-un-template)
   - [Faire correspondre chaque variable à une colonne](#faire-correspondre-chaque-variable-à-une-colonne)
@@ -30,12 +30,12 @@ SharePoint.
 | 🟡 **Propriétaires** | Conditions commerciales, Templates de contrats, et Générer un contrat |
 | 🟢 **Membres** | Générer un contrat uniquement |
 
-1. **Conditions commerciales** — le fichier Excel qui contient les données par code sous-segment (et marché)
-   utilisées pour préremplir un contrat.
+1. **Conditions commerciales** — le fichier Excel qui contient les données par code sous-segment utilisées pour
+   préremplir un contrat.
 2. **Templates de contrats** — les modèles Word (avec des variables `{{Variable}}`) et leur correspondance avec les
    colonnes du fichier de conditions.
-3. **Générer un contrat** — la recherche d'un code (et d'un marché), la relecture des valeurs, puis le
-   téléchargement du contrat rempli.
+3. **Générer un contrat** — la recherche d'un code, la relecture des valeurs, puis le téléchargement du contrat
+   rempli.
 
 > ℹ️ Si vous n'avez accès qu'à un seul onglet, ou à aucun, contactez un propriétaire du site — l'accès se base sur
 > votre niveau d'autorisation SharePoint (Contrôle total pour les deux premiers onglets, Modifier pour le
@@ -55,7 +55,7 @@ précédent.
 - Le fichier courant, jamais copié pour un lien externe.
 - « Changer de fichier » remplace définitivement (dépôt ou nouveau lien).
 - Statistiques du fichier (lignes, colonnes, vides).
-- Les deux colonnes désignées, modifiables via le crayon ✎.
+- La colonne désignée, modifiable via le crayon ✎.
 
 ### Déposer ou lier un fichier
 
@@ -75,19 +75,15 @@ directement). Deux façons de fournir le fichier :
 > ⚠️ Remplacer le fichier est **irréversible** : l'ancien fichier (et son enregistrement) est définitivement
 > supprimé — sauf s'il s'agissait d'un lien externe, où seul le lien est retiré, jamais le fichier d'origine.
 
-### Désigner les colonnes Code sous-segment et Marché
+### Désigner la colonne Code sous-segment
 
-Ces deux colonnes servent à retrouver la bonne ligne lors de la génération d'un contrat. Elles sont détectées
-automatiquement à l'import quand un intitulé de colonne les évoque clairement ; sinon (ou pour corriger une
-détection erronée), cliquez sur le crayon ✎ à côté du nom de colonne, choisissez la bonne colonne dans la liste,
-puis **OK**.
+Cette colonne sert à retrouver la bonne ligne lors de la génération d'un contrat. Elle est détectée automatiquement
+à l'import quand un intitulé de colonne l'évoque clairement ; sinon (ou pour corriger une détection erronée),
+cliquez sur le crayon ✎ à côté du nom de colonne, choisissez la bonne colonne dans la liste, puis **OK**.
 
 ![Désignation de la colonne Code sous-segment dans la liste des colonnes du fichier](images/conditions-colonne.png)
 
 *Le sélecteur liste toutes les colonnes du fichier ; « OK » valide le choix.*
-
-> 💡 La colonne **Marché** est optionnelle. Si vous ne la désignez pas, la génération de contrat se fait uniquement
-> par code sous-segment, comme avant l'introduction du marché.
 
 ## 2 · Templates de contrats
 
@@ -125,16 +121,13 @@ l'**importer** — pratique pour un template avec beaucoup de variables.
 
 🟢 *Membres* — **Onglet 3**
 
-Recherchez un code sous-segment (et un marché si la colonne est désignée), relisez les valeurs préremplies,
-téléchargez.
+Recherchez un code sous-segment, relisez les valeurs préremplies, téléchargez.
 
 ### Un seul contrat
 
-![Générer un contrat : choix du template, saisie du code sous-segment et du marché, bouton Rechercher](images/generate-search.png)
+![Générer un contrat : choix du template, saisie du code sous-segment, bouton Rechercher](images/generate-search.png)
 
-*Le champ **Marché** n'apparaît que si une colonne marché a été désignée dans Conditions commerciales — il
-désambiguïse les cas où un même code correspond à plusieurs marchés. Si plusieurs lignes correspondent malgré tout,
-un tableau de choix s'affiche avant le formulaire.*
+*Si plusieurs lignes correspondent au code saisi, un tableau de choix s'affiche avant le formulaire.*
 
 ![Formulaire de relecture et correction des valeurs avant téléchargement du contrat](images/generate-form.png)
 
@@ -144,9 +137,9 @@ un tableau de choix s'affiche avant le formulaire.*
 
 Cochez **« Générer plusieurs contrats à la fois »** : le champ unique devient une liste de lignes, une par contrat.
 
-![Mode lot : lignes code + marché, puis tableau de relecture du lot avec statuts Résolu / Introuvable](images/generate-batch.png)
+![Mode lot : lignes de codes, puis tableau de relecture du lot avec statuts Résolu / Introuvable](images/generate-batch.png)
 
-Chaque ligne devient une paire **code + marché**. Après « Rechercher tout », dépliez une ligne résolue pour en
+Chaque ligne devient un **code** à rechercher. Après « Rechercher tout », dépliez une ligne résolue pour en
 relire/corriger les valeurs, comme pour un contrat unique. Un code introuvable ou resté ambigu est ignoré au
 téléchargement final — le résumé l'indique. Tous les contrats réussis sont regroupés dans un seul fichier `.zip`.
 
@@ -166,10 +159,6 @@ page d'accueil ne fonctionnera pas.
 Cela arrive si le fichier contient un intitulé de colonne anormalement long (souvent un texte d'aide concatené par
 erreur). Élargissez la fenêtre du navigateur, ou survolez l'option pour lire son intitulé complet en infobulle avant
 de la choisir.
-
-**Le champ Marché n'apparaît pas dans « Générer un contrat ».**
-Il n'apparaît que si une colonne « Marché » est désignée pour le fichier de conditions courant (onglet Conditions
-commerciales, à côté de « Code sous-segment »). Sans colonne désignée, la recherche se fait par code seul.
 
 **Pourquoi je ne vois pas les onglets Conditions commerciales et Templates de contrats ?**
 Ces deux onglets sont réservés aux **propriétaires** du site (niveau Contrôle total). Un membre (niveau Modifier)
