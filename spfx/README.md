@@ -45,21 +45,27 @@ normalement pour tous les usages suivants.
 
 ## Déploiement
 
-1. **Build du paquet** (déjà fait, `sharepoint/solution/achats-contrats.sppkg`
-   généré ; pour le regénérer après une modification du code) :
+1. **Build du paquet** — un paquet prêt à l'emploi est fourni dans ce dépôt
+   (`spfx/achats-contrats.sppkg`, version 1.0.28.0) ; pour le regénérer après
+   une modification du code :
    ```bash
    cd spfx/achats-contrats
    npm install
    npm run build   # heft test --clean --production && heft package-solution --production
    ```
+   Le paquet généré se trouve alors dans
+   `sharepoint/solution/achats-contrats.sppkg` (dossier ignoré par git —
+   copier le fichier vers `spfx/achats-contrats.sppkg` pour le committer).
 2. **Charger le paquet** :
    - Sur le site `CONTRATHEQUE_GRP-PROJETCONTRATSIA2` (ou tout autre site),
      ouvrir **Contenu du site → App Catalog du site** (à créer si elle
      n'existe pas encore : Paramètres du site → App Catalog du site → Créer),
      ou utiliser l'App Catalog du tenant si vous préférez un déploiement
      centralisé pour plusieurs sites.
-   - Glisser `achats-contrats.sppkg` dans l'App Catalog, confirmer la
-     confiance ("Faire confiance à cette application ?").
+   - Glisser `spfx/achats-contrats.sppkg` dans l'App Catalog, confirmer la
+     confiance ("Faire confiance à cette application ?"). Si l'application
+     existe déjà (mise à jour), SharePoint détecte le même identifiant de
+     solution et propose de remplacer la version en place.
 3. **Ajouter le web part à une page** :
    - Sur une page moderne du site, **+ Ajouter un composant** → rechercher
      **« AchatsContrats »** → l'ajouter.
